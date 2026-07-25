@@ -2,16 +2,19 @@ import { browser } from '$app/environment';
 import type {
 	Block,
 	BlockStatus,
+	BookSummary,
 	Chapter,
 	CodexSettings,
 	CodexStatus,
 	CodexTranslationScope,
 	ProjectSummary,
 	Snapshot,
-	Typography
+	Typography,
+	WorkSession
 } from '$lib/types';
 
-export type BlockFilter = 'all' | 'untranslated' | 'machine' | 'stale';
+export type { BlockFilter } from '$lib/types';
+type BlockFilter = import('$lib/types').BlockFilter;
 
 export function matchesFilter(block: Block, filter: BlockFilter): boolean {
 	if (filter === 'all') return true;
@@ -41,10 +44,16 @@ export const editor = $state({
 	filter: 'all' as BlockFilter,
 	density: 'normal' as 'tight' | 'normal' | 'loose',
 	navOpen: false,
+	shelfOpen: false,
+	books: [] as BookSummary[],
+	/** 이번 Codex 작업에서 도착한 블록 누적 — JobBar의 +N */
+	arrived: 0,
 	save: { dirty: false, savedAt: null as number | null },
 	snapshots: [] as Snapshot[],
-	/** 미리보기 iframe 강제 리로드 카운터 (조판 변경·수동 새로고침 시 증가) */
-	previewRev: 0
+	/** 미리보기 iframe 강제 리로드 카운터 (조판 변경·번역 도착 시 증가) */
+	previewRev: 0,
+	/** 리로드 뒤 복원할 미리보기 스크롤 위치 */
+	previewScroll: 0
 });
 
 /** 화면 밀도는 책 데이터가 아니라 이 브라우저의 취향이므로 localStorage에 둔다 */
@@ -63,13 +72,13 @@ export async function boot(): Promise<void> {
 	await refreshProject();
 	void refreshCodex();
 	void refreshSaveState();
-	const first = editor.project?.chapters.find((c) => c.total > 0);
-	if (first) await openChapter(first.id);
+	void refreshBooks();
+	await restoreSession(); // 덮던 자리에서 이어간다
 	editor.booting = false;
 	connect();
 }
 
-export async function refreshProject(): Promise<void> {
+async function refreshProject(): Promise<void> {
 	const res = await fetch('/api/project');
 	if (res.ok) {
 		editor.project = await res.json();
@@ -107,6 +116,7 @@ export async function openChapter(id: string): Promise<void> {
 	const res = await fetch(`/api/chapters/${id}`);
 	editor.chapter = res.ok ? await res.json() : null;
 	editor.cursor = visibleBlocks()[0]?.id ?? null;
+	rememberSession({ chapterId: id, cursor: editor.cursor });
 }
 
 /* ---------- 커서: 키보드로 훑는 기준점 ---------- */
@@ -118,6 +128,7 @@ export function visibleBlocks(): Block[] {
 
 export function setCursor(blockId: string | null): void {
 	editor.cursor = blockId;
+	rememberSession({ cursor: blockId });
 	if (blockId) scrollToBlock(blockId);
 }
 
@@ -203,8 +214,9 @@ function mergeBlocks(chapterId: string, blocks: Block[], markFresh: boolean): vo
 		if (i < 0) continue;
 		editor.chapter.blocks[i] = incoming;
 		if (markFresh) {
+			// 배치가 20개씩 들어오고 다음 배치까지 30초쯤 조용하다 — 짧으면 놓친다
 			editor.fresh[incoming.id] = true;
-			setTimeout(() => delete editor.fresh[incoming.id], 1800);
+			setTimeout(() => delete editor.fresh[incoming.id], 4000);
 		}
 	}
 }
@@ -269,7 +281,7 @@ export async function download(url: string): Promise<string | null> {
 	return null;
 }
 
-export async function refreshSaveState(): Promise<void> {
+async function refreshSaveState(): Promise<void> {
 	const res = await fetch('/api/save');
 	if (res.ok) editor.save = await res.json();
 }
@@ -322,6 +334,62 @@ export async function importWorkFile(file: File): Promise<string | null> {
 	await refreshSnapshots();
 	await reloadEverything();
 	return null;
+}
+
+/* ---------- 책장: 여러 권 오가기 ---------- */
+
+export async function refreshBooks(): Promise<void> {
+	const res = await fetch('/api/books');
+	editor.books = res.ok ? await res.json() : [];
+}
+
+/** returns an error message, or null on success */
+export async function switchBook(bookId: string): Promise<string | null> {
+	const res = await fetch(`/api/books/${bookId}`, { method: 'POST' });
+	if (!res.ok) return (await res.json().catch(() => null))?.message ?? '책을 열지 못했습니다';
+	editor.project = await res.json();
+	editor.shelfOpen = false;
+	await restoreSession();
+	void refreshBooks();
+	return null;
+}
+
+export async function removeBook(bookId: string): Promise<string | null> {
+	const res = await fetch(`/api/books/${bookId}`, { method: 'DELETE' });
+	if (!res.ok) return (await res.json().catch(() => null))?.message ?? '지우지 못했습니다';
+	await refreshBooks();
+	return null;
+}
+
+/** 저장해둔 자리(챕터·커서·필터)로 되돌린다 — 없으면 첫 작업 챕터부터 */
+async function restoreSession(): Promise<void> {
+	const s = editor.project?.session;
+	editor.filter = s?.filter ?? 'all';
+	const target =
+		(s?.chapterId && editor.project?.chapters.find((c) => c.id === s.chapterId)?.id) ||
+		editor.project?.chapters.find((c) => c.total > 0)?.id;
+	if (!target) {
+		editor.chapter = null;
+		editor.chapterId = null;
+		return;
+	}
+	await openChapter(target);
+	if (s?.cursor && editor.chapter?.blocks.some((b) => b.id === s.cursor)) setCursor(s.cursor);
+}
+
+/** 지금 자리를 책에 기록한다 (debounce 저장 경로를 그대로 탄다) */
+let sessionTimer: ReturnType<typeof setTimeout> | null = null;
+function rememberSession(patch: Partial<WorkSession>): void {
+	if (!editor.project) return;
+	Object.assign(editor.project.session, patch);
+	if (sessionTimer) clearTimeout(sessionTimer);
+	sessionTimer = setTimeout(() => {
+		void fetch('/api/settings', {
+			method: 'PATCH',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ session: patch })
+		});
+	}, 600);
 }
 
 /* ---------- 검색·치환 ---------- */
@@ -399,11 +467,14 @@ export function connectCodex(): Promise<string | null> {
 	return codexRequest('POST', { action: 'connect' });
 }
 
-export function startCodexTranslation(scope: CodexTranslationScope): Promise<string | null> {
+export function startCodexTranslation(
+	scope: CodexTranslationScope,
+	chapterId?: string
+): Promise<string | null> {
 	return codexRequest('POST', {
 		action: 'start',
 		scope,
-		chapterId: scope === 'chapter' ? editor.chapterId : undefined
+		chapterId: scope === 'chapter' ? (chapterId ?? editor.chapterId) : undefined
 	});
 }
 
@@ -416,6 +487,21 @@ export function stopCodexTranslation(): Promise<string | null> {
 	return codexRequest('DELETE');
 }
 
+/**
+ * 배치가 연달아 들어올 때 iframe을 계속 새로 그리지 않도록 모아서 한 번.
+ * 보고 있던 자리를 잃지 않게 스크롤 위치를 넘겨받아 복원한다(같은 오리진이라 읽을 수 있다).
+ */
+let previewTimer: ReturnType<typeof setTimeout> | null = null;
+function refreshPreview(): void {
+	if (previewTimer) return;
+	previewTimer = setTimeout(() => {
+		previewTimer = null;
+		const frame = document.querySelector('iframe.preview') as HTMLIFrameElement | null;
+		editor.previewScroll = frame?.contentWindow?.scrollY ?? 0;
+		editor.previewRev++;
+	}, 1500);
+}
+
 function connect(): void {
 	const es = new EventSource('/api/events');
 	es.onopen = () => (editor.sse = true);
@@ -425,12 +511,18 @@ function connect(): void {
 		if (event.type === 'blocks') {
 			mergeBlocks(event.chapterId, event.blocks, true);
 			editor.save.dirty = true;
+			if (editor.codex?.job.state === 'running') editor.arrived += event.blocks.length;
+			// 미리보기를 켜둔 채 번역을 돌리면 화면이 얼어 보였다 — 도착하면 다시 그린다
+			if (editor.view === 'preview' && event.chapterId === editor.chapterId) refreshPreview();
 			void refreshProject();
 		} else if (event.type === 'project') {
 			void refreshProject().then(() => {
 				if (editor.chapterId) void openChapter(editor.chapterId);
 			});
 		} else if (event.type === 'codex') {
+			// 새 잡이 시작되면 '+N 도착' 카운터를 0으로 (안 그러면 잡을 넘어 누적된다)
+			const was = editor.codex?.job.state;
+			if (event.status.state === 'running' && was !== 'running') editor.arrived = 0;
 			if (editor.codex) editor.codex.job = event.status;
 			else void refreshCodex();
 		} else if (event.type === 'saved') {

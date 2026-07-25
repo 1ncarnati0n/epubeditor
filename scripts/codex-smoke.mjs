@@ -52,6 +52,26 @@ if (args[0] === 'mcp' && args[1] === 'get') {
 if (args[0] === 'exec') {
 	await appendFile(process.env.MOCK_CODEX_ARGV, JSON.stringify(args) + '\\n');
 	const prompt = args.at(-1);
+	// 실패 시나리오 주입: MOCK_FAIL 파일에 {mode, left}를 두면 그만큼 실패한다
+	const failFile = process.env.MOCK_CODEX_FAIL;
+	if (failFile) {
+		try {
+			const plan = JSON.parse(await readFile(failFile, 'utf8'));
+			if (plan.left > 0) {
+				plan.left -= 1;
+				await writeFile(failFile, JSON.stringify(plan));
+				if (plan.mode === 'permanent') {
+					console.error('stream error: You are not logged in. Run codex login.');
+				} else {
+					console.error('failed to connect to websocket: HTTP error: 503 Service Unavailable, url: wss://chatgpt.com/backend-api/codex/responses');
+					console.error('auth error code: biscuit_baker_service_me_circuit_open');
+				}
+				process.exit(1);
+			}
+		} catch (e) {
+			if (e.code !== 'ENOENT') throw e;
+		}
+	}
 	const chapterId = prompt.match(/chapterId="([^"]+)"/)?.[1];
 	const blockIds = prompt.match(/blockIds=\\[([^\\]]*)\\]/)?.[1];
 	const limit = Number(prompt.match(/limit=(\\d+)/)?.[1] ?? 20);
@@ -116,14 +136,14 @@ function freePort() {
 	});
 }
 
-function epub() {
+function epub(title = 'Codex Smoke') {
 	const files = {
 		mimetype: strToU8('application/epub+zip'),
 		'META-INF/container.xml': strToU8(
 			'<?xml version="1.0"?><container xmlns="urn:oasis:names:tc:opendocument:xmlns:container"><rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles></container>'
 		),
 		'OEBPS/content.opf': strToU8(
-			'<?xml version="1.0"?><package xmlns="http://www.idpf.org/2007/opf" version="3.0"><metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>Codex Smoke</dc:title><dc:language>en</dc:language></metadata><manifest><item id="one" href="one.xhtml" media-type="application/xhtml+xml"/><item id="two" href="two.xhtml" media-type="application/xhtml+xml"/><item id="three" href="three.xhtml" media-type="application/xhtml+xml"/></manifest><spine><itemref idref="one"/><itemref idref="two"/><itemref idref="three"/></spine></package>'
+			`<?xml version="1.0"?><package xmlns="http://www.idpf.org/2007/opf" version="3.0"><metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>${title}</dc:title><dc:language>en</dc:language></metadata><manifest><item id="one" href="one.xhtml" media-type="application/xhtml+xml"/><item id="two" href="two.xhtml" media-type="application/xhtml+xml"/><item id="three" href="three.xhtml" media-type="application/xhtml+xml"/></manifest><spine><itemref idref="one"/><itemref idref="two"/><itemref idref="three"/></spine></package>`
 		),
 		// 3 blocks so batchSize=2 forces two batches
 		'OEBPS/one.xhtml': strToU8(
@@ -224,6 +244,7 @@ try {
 				CODEX_BIN: fakeCodex,
 				MOCK_CODEX_STATE: stateFile,
 				MOCK_CODEX_ARGV: argvLog,
+				MOCK_CODEX_FAIL: path.join(temp, 'fail.json'),
 				CODEX_HOME: temp, // 모델 카탈로그 없음 → models: [] 폴백 경로도 함께 검증
 				EPUBEDITOR_DATA_DIR: path.join(temp, 'data')
 			},
@@ -462,7 +483,116 @@ try {
 	const noGuide = await mcpCall('get_blocks', { chapterId: ch1, status: 'all', limit: 1 });
 	assert.ok(!('translationGuide' in noGuide), '지침이 비면 필드를 보내지 않는다');
 
-	// --- 7. 기존 보호장치가 그대로인가 (취소·진행 없음·업로드 잠금) ---
+	// --- 6b. 여러 권: 목록·전환·세션·삭제 ---
+	// 두 번째 책을 올린다 (다른 바이트 → 다른 bookId)
+	const otherForm = new FormData();
+	otherForm.set('file', new Blob([epub('Second Book')], { type: 'application/epub+zip' }), 'b.epub');
+	response = await fetch(`${base}/api/upload`, {
+		method: 'POST',
+		headers: { Origin: base },
+		body: otherForm
+	});
+	await assertStatus(response, 200);
+	const second = await response.json();
+	assert.notEqual(second.bookId, project.bookId, '다른 파일은 다른 책');
+
+	let shelf = await (await fetch(`${base}/api/books`)).json();
+	assert.equal(shelf.length, 2, '책장에 두 권');
+	assert.ok(
+		shelf.every((b) => b.title),
+		'목록에 제목이 있다'
+	);
+	assert.equal(shelf.find((b) => b.bookId === second.bookId).active, true, '방금 올린 책이 활성');
+
+	// 첫 책으로 돌아가면 번역이 그대로 있어야 한다 (섞이지 않음)
+	const back = await (await fetch(`${base}/api/books/${project.bookId}`, json({}))).json();
+	assert.equal(back.bookId, project.bookId);
+	assert.ok(
+		(await chapterBlocks(ch1)).some((b) => b.targetHtml),
+		'전환해도 첫 책의 번역은 남아 있다'
+	);
+	const secondBlocks = await (await fetch(`${base}/api/chapters/s0`)).json();
+	assert.ok(secondBlocks.blocks.length, '첫 책의 챕터를 다시 읽는다');
+
+	// 세션: 챕터·커서·필터를 기록하고 갔다 오면 복원된다
+	await assertStatus(
+		await fetch(
+			`${base}/api/settings`,
+			Object.assign(json({ session: { chapterId: ch3, cursor: `${ch3}:b1`, filter: 'machine' } }), {
+				method: 'PATCH'
+			})
+		),
+		200
+	);
+	await fetch(`${base}/api/books/${second.bookId}`, json({}));
+	const restored = await (await fetch(`${base}/api/books/${project.bookId}`, json({}))).json();
+	assert.deepEqual(
+		restored.session,
+		{ chapterId: ch3, cursor: `${ch3}:b1`, filter: 'machine' },
+		'덮던 자리가 책마다 따로 남는다'
+	);
+
+	// --- 6c. 일시 장애를 견디는가 (503 → 재시도 → 성공) ---
+	// 갓 올린 두 번째 책은 전부 미번역이라 실패 시나리오를 깨끗하게 돌릴 수 있다
+	await fetch(`${base}/api/books/${second.bookId}`, json({}));
+	const failFile = path.join(temp, 'fail.json');
+	const setFail = (mode, left) => writeFile(failFile, JSON.stringify({ mode, left }));
+	const execCount = async () => (await execArgvs()).length;
+	const [s0, s1] = second.chapters.map((c) => c.id);
+
+	await setFail('transient', 2); // 처음 2번은 503으로 죽고 3번째에 성공해야 한다
+	let calls = await execCount();
+	await assertStatus(
+		await fetch(`${base}/api/codex`, json({ action: 'start', scope: 'chapter', chapterId: s0 })),
+		202
+	);
+	const recovered = await waitFor(
+		`${base}/api/codex`,
+		(s) => s.job.state === 'completed' || s.job.state === 'failed',
+		90_000
+	);
+	assert.equal(recovered.job.state, 'completed', '일시 장애는 재시도로 넘겨야 한다');
+	assert.equal(recovered.job.failedChapters.length, 0, '재시도로 살아났으므로 건너뛴 chapter 없음');
+	assert.ok(
+		(await execCount()) - calls >= 3,
+		'실패한 만큼 다시 불러야 한다 (재시도가 없으면 1회로 끝난다)'
+	);
+	assert.ok(
+		(await (await fetch(`${base}/api/chapters/${s0}`)).json()).blocks.some((b) => b.targetHtml),
+		'재시도 뒤 번역이 들어가 있다'
+	);
+
+	// --- 6d. 영구 오류는 재시도하지 않고, 그 chapter만 건너뛴다 ---
+	await setFail('permanent', 99);
+	calls = await execCount();
+	await assertStatus(
+		await fetch(`${base}/api/codex`, json({ action: 'start', scope: 'chapter', chapterId: s1 })),
+		202
+	);
+	const gaveUp = await waitFor(
+		`${base}/api/codex`,
+		(s) => s.job.state === 'completed' || s.job.state === 'failed',
+		60_000
+	);
+	const permanentCalls = (await execCount()) - calls;
+	assert.equal(permanentCalls, 1, `로그인 오류는 즉시 포기해야 한다 (실제 ${permanentCalls}회)`);
+	assert.equal(gaveUp.job.failedChapters.length, 1, '건너뛴 chapter가 기록된다');
+	assert.equal(gaveUp.job.failedChapters[0].id, s1);
+	assert.match(gaveUp.job.failedChapters[0].reason, /codex login/, '읽을 수 있는 한 줄 요약');
+	assert.ok(
+		!gaveUp.job.failedChapters[0].reason.includes('wss://'),
+		'원시 로그를 그대로 노출하지 않는다'
+	);
+	await rm(failFile, { force: true });
+
+	// 삭제: 활성 책은 거부, 비활성 책은 사라진다
+	await fetch(`${base}/api/books/${project.bookId}`, json({}));
+	await assertStatus(await fetch(`${base}/api/books/${project.bookId}`, { method: 'DELETE', headers: { Origin: base } }), 409);
+	await assertStatus(await fetch(`${base}/api/books/${second.bookId}`, { method: 'DELETE', headers: { Origin: base } }), 200);
+	shelf = await (await fetch(`${base}/api/books`)).json();
+	assert.equal(shelf.length, 1, '지운 책은 책장에서 사라진다');
+
+// --- 7. 기존 보호장치가 그대로인가 (취소·진행 없음·업로드 잠금) ---
 	await assertStatus(await fetch(`${base}/api/codex`, json({ action: 'start', scope: 'chapter', chapterId: ch2 })), 202);
 	const uploadWhileRunning = await fetch(`${base}/api/upload`, {
 		method: 'POST',
@@ -628,7 +758,7 @@ try {
 	);
 
 	console.log(
-		'CODEX SMOKE PASS — 실행 설정, 지침(Codex+MCP), 블록 번역, 큐, 작업파일, 스냅샷, 대역본, 종료 저장, 원문 분리, 드리프트 감지·해소, 원본 교체 거부, v1 마이그레이션, 작업 보호 안전벨트'
+		'CODEX SMOKE PASS — 실행 설정, 지침, 블록 번역, 큐, 검색·치환, 작업파일, 스냅샷, 대역본, 여러 권(목록·전환·세션·삭제), 종료 저장, 원문 분리, 드리프트 감지·해소, 원본 교체 거부, v1 마이그레이션, 작업 보호'
 	);
 	if (serverError.trim()) console.log('server stderr:', serverError.trim().slice(0, 500));
 } finally {

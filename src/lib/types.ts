@@ -50,15 +50,47 @@ export interface StoredTranslation {
 	srcHash: string;
 }
 
+export type BlockFilter = 'all' | 'untranslated' | 'machine' | 'stale';
+
+/** 책마다 덮던 자리 — 다른 책에 갔다 와도 이어서 작업하도록 */
+export interface WorkSession {
+	chapterId: string | null;
+	cursor: string | null;
+	filter: BlockFilter;
+}
+
 export interface StoredProject {
 	version: 2;
 	bookId: string;
 	/** source.epub 전체 해시 — 파일이 통째로 바뀐 것을 잡는다 */
 	epubSha256: string;
+	/** 책장 목록을 만들려고 둔 표시용 사본. 진실은 언제나 source.epub이다 */
+	title: string;
+	creator: string | null;
+	updatedAt: number;
 	translationGuide: string;
 	typography: Typography;
 	codex: CodexSettings;
+	session: WorkSession;
 	translations: Record<string, StoredTranslation>;
+}
+
+/** 책장 한 줄 */
+export interface BookSummary {
+	bookId: string;
+	title: string;
+	creator: string | null;
+	total: number;
+	machine: number;
+	reviewed: number;
+	stale: number;
+	updatedAt: number;
+	bytes: number;
+	active: boolean;
+}
+
+export function defaultSession(): WorkSession {
+	return { chapterId: null, cursor: null, filter: 'all' };
 }
 
 /** 메모리에서 쓰는 모양 — 원본에서 파싱한 블록에 번역을 얹은 것 */
@@ -75,6 +107,7 @@ export interface Project {
 	translationGuide: string;
 	typography: Typography;
 	codex: CodexSettings;
+	session: WorkSession;
 	chapters: Chapter[];
 }
 
@@ -135,6 +168,7 @@ export interface ProjectSummary {
 	translationGuide: string;
 	typography: Typography;
 	codex: CodexSettings;
+	session: WorkSession;
 	chapters: ChapterSummary[];
 }
 
@@ -160,6 +194,12 @@ export interface CodexJobStatus {
 	blockId: string | null;
 	/** block scope: presses waiting behind the current one — ids so each row can show itself */
 	queuedIds: string[];
+	/** 일시 장애로 같은 batch를 다시 시도 중일 때 1..MAX, 아니면 0 */
+	attempt: number;
+	/** 다음 재시도까지 남은 초 (0이면 대기 중 아님) */
+	retryInSec: number;
+	/** 재시도를 다 쓰고 건너뛴 chapter들 — 끝난 뒤 이것만 다시 돌릴 수 있다 */
+	failedChapters: { id: string; title: string | null; reason: string }[];
 	translated: number;
 	total: number;
 	startedAt: number | null;
@@ -197,6 +237,7 @@ export function projectSummary(p: Project): ProjectSummary {
 		translationGuide: p.translationGuide,
 		typography: p.typography,
 		codex: p.codex,
+		session: p.session,
 		chapters: p.chapters.map(chapterSummary)
 	};
 }

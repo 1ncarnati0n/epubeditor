@@ -14,7 +14,6 @@
 		saveBlock,
 		saveNow,
 		translateBlock,
-		uploadEpub,
 		visibleBlocks
 	} from '$lib/client/state.svelte';
 	import UploadDrop from '$lib/components/UploadDrop.svelte';
@@ -26,6 +25,9 @@
 	import GuidePanel from '$lib/components/GuidePanel.svelte';
 	import SearchBar from '$lib/components/SearchBar.svelte';
 	import ShortcutHelp from '$lib/components/ShortcutHelp.svelte';
+	import BookShelf from '$lib/components/BookShelf.svelte';
+	import JobBar from '$lib/components/JobBar.svelte';
+	import Segmented from '$lib/components/Segmented.svelte';
 
 	let helpOpen = $state(false);
 	let exporting = $state(false);
@@ -56,6 +58,19 @@
 		// 커서가 숨겨진 행에 있으면 보이는 첫 행으로 데려온다
 		if (!rows.some((b) => b.id === editor.cursor)) setCursor(visibleBlocks()[0]?.id ?? null);
 	}
+
+	// 조판에서 고른 서체를 편집 화면 번역 칸에도 흘려 넣는다
+	$effect(() => {
+		const font = editor.project?.typography.bodyFont;
+		document.documentElement.style.setProperty(
+			'--font-target',
+			font === 'pretendard'
+				? "'Pretendard', sans-serif"
+				: font === 'noto-serif-kr'
+					? "'Noto Serif KR', serif"
+					: 'var(--font-ko)'
+		);
+	});
 
 	async function runExport() {
 		exporting = true;
@@ -199,6 +214,7 @@
 	<UploadDrop />
 {:else}
 	<div class="app">
+		<JobBar />
 		<header>
 			<button
 				class="navtoggle"
@@ -206,10 +222,16 @@
 				title="차례"
 				onclick={() => (editor.navOpen = !editor.navOpen)}>☰</button
 			>
-			<div class="book">
+			<button
+				class="book"
+				aria-expanded={editor.shelfOpen}
+				title="책장 — 다른 책으로 전환"
+				onclick={() => (editor.shelfOpen = !editor.shelfOpen)}
+			>
 				<strong>{editor.project.title}</strong>
 				{#if editor.project.creator}<span class="by">{editor.project.creator}</span>{/if}
-			</div>
+				<span class="caret" aria-hidden="true">▾</span>
+			</button>
 			<!-- Codex가 도는 동안엔 같은 자리를 작업 진행률로 내준다 (패널이 닫혀 있어도 보이게) -->
 			{#if codexRunning}
 				<button class="progress live" onclick={() => openPanel('codex')} title="Codex 진행 상황">
@@ -235,19 +257,19 @@
 				<span class="num">{pct}%</span>
 			</div>
 			{/if}
-			<div class="views" role="group" aria-label="보기 전환">
-				<button
-					class:on={editor.view === 'edit'}
-					onclick={() => (editor.view = 'edit')}>편집</button
-				>
-				<button
-					class:on={editor.view === 'preview'}
-					onclick={() => {
-						editor.view = 'preview';
-						editor.previewRev++;
-					}}>미리보기</button
-				>
-			</div>
+			<Segmented
+				size="small"
+				label="보기 전환"
+				value={editor.view}
+				items={[
+					{ key: 'edit', label: '편집' },
+					{ key: 'preview', label: '미리보기' }
+				]}
+				pick={(key) => {
+					editor.view = key;
+					if (key === 'preview') editor.previewRev++;
+				}}
+			/>
 
 			<!-- 도구: 이름 대신 기호 — 상태는 점으로, 이름은 툴팁으로 -->
 			<div class="tools" role="group" aria-label="도구">
@@ -290,25 +312,25 @@
 			<button class="primary" disabled={exporting} onclick={runExport}>
 				{exporting ? '만드는 중…' : '내보내기'}
 			</button>
-			<label class="reopen" class:disabled={codexRunning} title="다른 책 열기">
-				<span aria-hidden="true">＋</span><span class="sr">다른 책 열기</span>
-				<input
-					type="file"
-					accept=".epub,application/epub+zip"
-					hidden
-					disabled={codexRunning}
-					onchange={(e) => {
-						const f = e.currentTarget.files?.[0];
-						if (f) void uploadEpub(f);
-					}}
-				/>
-			</label>
 		</header>
 		{#if exportError}
 			<div class="stale-bar" role="alert">
 				<strong>내보내기 실패</strong><span>{exportError}</span>
 				<button onclick={() => (exportError = null)}>닫기</button>
 			</div>
+		{/if}
+		{#if editor.shelfOpen}
+			<div class="shelf-drop">
+				<BookShelf />
+			</div>
+			<div
+				class="scrim"
+				role="button"
+				tabindex="-1"
+				aria-label="책장 닫기"
+				onclick={() => (editor.shelfOpen = false)}
+				onkeydown={(e) => e.key === 'Enter' && (editor.shelfOpen = false)}
+			></div>
 		{/if}
 		{#if editor.searchOpen}
 			<SearchBar />
@@ -336,18 +358,18 @@
 				{:else if editor.view === 'edit'}
 					<div class="colhead">
 						<span class="lbl">원문 · EN</span>
-						<div class="filters" role="group" aria-label="블록 필터">
-							{#each FILTERS as f (f.key)}
-								<button
-									class:on={editor.filter === f.key}
-									aria-pressed={editor.filter === f.key}
-									disabled={f.key !== 'all' && f.count(counts) === 0}
-									onclick={() => pickFilter(f.key)}
-								>
-									{f.label}<em>{f.count(counts)}</em>
-								</button>
-							{/each}
-						</div>
+						<Segmented
+							size="small"
+							label="블록 필터"
+							value={editor.filter}
+							items={FILTERS.map((f) => ({
+								key: f.key,
+								label: f.label,
+								count: f.count(counts),
+								disabled: f.key !== 'all' && f.count(counts) === 0
+							}))}
+							pick={pickFilter}
+						/>
 						<span class="lbl right">번역 · KO</span>
 					</div>
 					{#if rows.length === 0}
@@ -358,7 +380,20 @@
 					{/each}
 				{:else}
 					{#key `${editor.chapterId}:${editor.previewRev}`}
-						<iframe class="preview" title="미리보기" src="/preview/{editor.chapterId}"></iframe>
+						<iframe
+							class="preview"
+							title="미리보기"
+							src="/preview/{editor.chapterId}"
+							onload={(e) => {
+								// 번역이 도착해 다시 그렸을 때 보던 자리로 되돌린다
+								if (editor.previewScroll) {
+									(e.currentTarget as HTMLIFrameElement).contentWindow?.scrollTo(
+										0,
+										editor.previewScroll
+									);
+								}
+							}}
+						></iframe>
 					{/key}
 				{/if}
 			</main>
@@ -394,11 +429,43 @@
 		flex-shrink: 0;
 	}
 	.book {
+		display: flex;
+		align-items: baseline;
+		gap: 0.6rem;
 		min-width: 0;
 		flex: 1;
 		white-space: nowrap;
 		overflow: hidden;
+		text-align: left;
+	}
+	.book strong {
+		overflow: hidden;
 		text-overflow: ellipsis;
+	}
+	.book .caret {
+		color: var(--muted);
+		font-size: 0.7rem;
+	}
+	.book:hover .caret {
+		color: var(--ink);
+	}
+	.shelf-drop {
+		position: absolute;
+		top: 52px;
+		left: 1.25rem;
+		z-index: 15;
+		width: min(560px, calc(100vw - 2.5rem));
+		border: 1px solid var(--line);
+		box-shadow: 0 20px 50px -22px rgb(0 0 0 / 45%);
+	}
+	.scrim {
+		position: fixed;
+		inset: 0;
+		z-index: 14;
+		cursor: default;
+	}
+	.app {
+		position: relative;
 	}
 	.book strong {
 		font-family: var(--font-en);
@@ -443,32 +510,7 @@
 		text-align: right;
 		font-variant-numeric: tabular-nums;
 	}
-	.sr {
-		position: absolute;
-		width: 1px;
-		height: 1px;
-		overflow: hidden;
-		clip-path: inset(50%);
-	}
-	.reopen {
-		display: grid;
-		place-items: center;
-		width: 28px;
-		height: 28px;
-		font-size: 1rem;
-		color: var(--muted);
-		cursor: pointer;
-		border: 1px solid var(--line);
-	}
-	.reopen:hover {
-		color: var(--ink);
-		border-color: var(--muted);
-	}
-	.reopen.disabled {
-		cursor: default;
-		opacity: 0.45;
-	}
-	/* 도구 넷은 한 덩어리로 묶어 주요 행동과 구분한다 */
+					/* 도구 넷은 한 덩어리로 묶어 주요 행동과 구분한다 */
 	.tools {
 		display: flex;
 		border: 1px solid var(--line);
@@ -490,20 +532,11 @@
 		cursor: default;
 		opacity: 0.5;
 	}
-	.views {
-		display: flex;
-		border: 1px solid var(--line);
-	}
-	.views button,
 	.tool {
 		font-size: 0.8rem;
 		padding: 0.3rem 0.7rem;
 		color: var(--muted);
 		text-decoration: none;
-	}
-	.views button.on {
-		background: var(--ink);
-		color: var(--paper);
 	}
 	.tool {
 		border: 1px solid var(--line);
@@ -559,22 +592,22 @@
 		align-items: center;
 		gap: 0.8rem;
 		flex-shrink: 0;
-		border-bottom: 1px solid color-mix(in srgb, #9d3f32 35%, var(--line));
-		background: color-mix(in srgb, #9d3f32 8%, var(--paper));
+		border-bottom: 1px solid color-mix(in srgb, var(--warn) 35%, var(--line));
+		background: color-mix(in srgb, var(--warn) 8%, var(--paper));
 		padding: 0.55rem 1.25rem;
 		font-size: 0.8rem;
 	}
 	.stale-bar strong {
-		color: #9d3f32;
+		color: var(--warn);
 	}
 	.stale-bar span {
 		flex: 1;
 		color: var(--muted);
 	}
 	.stale-bar button {
-		border: 1px solid color-mix(in srgb, #9d3f32 45%, transparent);
+		border: 1px solid color-mix(in srgb, var(--warn) 45%, transparent);
 		padding: 0.25rem 0.7rem;
-		color: #9d3f32;
+		color: var(--warn);
 		font-size: 0.76rem;
 	}
 	.stale-bar button:disabled {
@@ -624,37 +657,6 @@
 	}
 	.lbl.right {
 		text-align: right;
-	}
-	.filters {
-		display: flex;
-		flex-shrink: 0;
-		border: 1px solid var(--line);
-		background: var(--paper);
-		letter-spacing: normal;
-	}
-	.filters button {
-		display: flex;
-		align-items: center;
-		gap: 0.3rem;
-		padding: 0.2rem 0.55rem;
-		color: var(--muted);
-		font-size: 0.74rem;
-	}
-	.filters button + button {
-		border-left: 1px solid var(--line);
-	}
-	.filters button.on {
-		background: var(--ink);
-		color: var(--paper);
-	}
-	.filters button:disabled {
-		cursor: default;
-		opacity: 0.4;
-	}
-	.filters em {
-		font-style: normal;
-		font-variant-numeric: tabular-nums;
-		opacity: 0.65;
 	}
 	.hint {
 		color: var(--muted);

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import Segmented from './Segmented.svelte';
 	import { editor, goToBlock, replaceAll, search, type SearchHit } from '$lib/client/state.svelte';
 
 	let q = $state('');
@@ -67,10 +68,16 @@
 			placeholder="책 전체에서 찾기"
 			aria-label="검색어"
 		/>
-		<div class="scope" role="group" aria-label="검색 대상">
-			<button class:on={where === 'target'} onclick={() => (where = 'target')}>번역</button>
-			<button class:on={where === 'source'} onclick={() => (where = 'source')}>원문</button>
-		</div>
+		<Segmented
+			size="small"
+			label="검색 대상"
+			value={where}
+			items={[
+				{ key: 'target', label: '번역' },
+				{ key: 'source', label: '원문' }
+			]}
+			pick={(key) => (where = key as 'source' | 'target')}
+		/>
 		<span class="count">
 			{#if searching}찾는 중…{:else if q.trim()}{hits.length}{truncated ? '+' : ''}건{/if}
 		</span>
@@ -145,23 +152,6 @@
 	input:focus {
 		outline: none;
 		border-color: var(--sealed);
-	}
-	.scope {
-		display: flex;
-		border: 1px solid var(--line);
-		background: var(--paper);
-	}
-	.scope button {
-		padding: 0.25rem 0.55rem;
-		color: var(--muted);
-		font-size: 0.74rem;
-	}
-	.scope button + button {
-		border-left: 1px solid var(--line);
-	}
-	.scope button.on {
-		background: var(--ink);
-		color: var(--paper);
 	}
 	.count {
 		min-width: 4rem;

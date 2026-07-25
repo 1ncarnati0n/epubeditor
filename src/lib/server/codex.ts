@@ -47,6 +47,9 @@ function idleJob(): CodexJobStatus {
 		chapterCount: 0,
 		blockId: null,
 		queuedIds: [],
+		attempt: 0,
+		retryInSec: 0,
+		failedChapters: [],
 		translated: 0,
 		total: 0,
 		startedAt: null,
@@ -247,6 +250,12 @@ function untranslatedCount(chapter: { blocks: { status: string }[] }): number {
 	return chapter.blocks.filter((block) => block.status === 'untranslated').length;
 }
 
+async function getChapterOrThrow(chapterId: string) {
+	const chapter = (await getProject())?.chapters.find((item) => item.id === chapterId);
+	if (!chapter) throw new Error(`chapter ${chapterId}을 찾지 못했습니다`);
+	return chapter;
+}
+
 /** the human's per-book tone/glossary note, kept in its own labelled section */
 function styleGuide(instructions: string): string {
 	const text = instructions.trim();
@@ -305,6 +314,78 @@ function execArgs(expectedUrl: string, prompt: string, settings: CodexSettings):
 
 function appendDetail(current: string, chunk: string): string {
 	return `${current}${chunk}`.slice(-4000);
+}
+
+/*
+ * OpenAI 쪽이 잠깐 넘어지는 일은 흔하다 (503 + biscuit_baker_service_me_circuit_open 등).
+ * Codex CLI가 자체적으로 5번 재연결하다 포기하면 프로세스가 비정상 종료하는데, 그걸
+ * 잡 실패로 취급하면 254배치짜리 책 번역이 한 번의 딸꾹질로 통째로 죽는다.
+ */
+const TRANSIENT =
+	/(\b50[234]\b|\b429\b|service unavailable|circuit_open|reconnecting|websocket|econnreset|etimedout|socket hang up|stream (disconnected|closed)|rate.?limit|overloaded|timed? ?out)/i;
+const MAX_ATTEMPTS = 5;
+/** 제출이 0인 경우는 모델이 정말 거부하는 것일 수 있어 덜 끈질기게 */
+const MAX_EMPTY_ATTEMPTS = 2;
+
+class NoProgressError extends Error {}
+
+function isTransient(error: unknown): boolean {
+	return error instanceof NoProgressError || TRANSIENT.test(String((error as Error)?.message ?? ''));
+}
+
+/** stderr 4,000자 대신 사람이 읽을 한 줄 — 원문은 서버 콘솔에 남긴다 */
+function summarize(error: unknown): string {
+	const raw = String((error as Error)?.message ?? error ?? '').trim();
+	if (!raw) return '알 수 없는 오류';
+	if (/circuit_open|service unavailable|\b503\b/i.test(raw)) {
+		return 'OpenAI 쪽 일시 장애 (503 Service Unavailable)';
+	}
+	if (/\b429\b|rate.?limit/i.test(raw)) return '요청 한도에 걸렸습니다 (429)';
+	if (/not logged in|login/i.test(raw)) return '터미널에서 codex login이 필요합니다';
+	// 타임스탬프·로그 레벨을 걷어내고 마지막 의미 있는 줄
+	const line = raw
+		.split('\n')
+		.map((l) => l.replace(/^\S+Z\s+(ERROR|WARN|INFO)\s+\S+:\s*/, '').trim())
+		.filter(Boolean)
+		.at(-1);
+	return (line ?? raw).slice(0, 200);
+}
+
+/** 중지가 즉시 먹히도록 취소 가능한 대기 — 재시도 백오프에 쓴다 */
+async function backoff(attempt: number): Promise<void> {
+	const total = Math.min(60, 2 ** attempt);
+	for (let left = total; left > 0; left--) {
+		if (cancelRequested) return;
+		job.retryInSec = left;
+		publish();
+		await new Promise((r) => setTimeout(r, 1000));
+	}
+	job.retryInSec = 0;
+}
+
+/**
+ * 한 batch를 재시도까지 포함해 끝낸다. 배치마다 제출 즉시 저장되고 루프가 매번
+ * 미번역 수를 다시 읽으므로, 재시도는 이미 된 것을 건너뛰고 남은 것만 이어서 한다.
+ */
+async function runWithRetry(work: () => Promise<void>, maxAttempts: number): Promise<void> {
+	for (let attempt = 1; ; attempt++) {
+		try {
+			job.attempt = attempt > 1 ? attempt : 0;
+			await work();
+			job.attempt = 0;
+			job.retryInSec = 0;
+			return;
+		} catch (error) {
+			if (cancelRequested) throw error;
+			if (!isTransient(error) || attempt >= maxAttempts) throw error;
+			console.error(`codex batch failed (${attempt}/${maxAttempts}):`, error);
+			job.attempt = attempt + 1;
+			job.message = `일시 오류 — 다시 시도합니다 (${attempt + 1}/${maxAttempts})`;
+			publish();
+			await backoff(attempt);
+			if (cancelRequested) throw error;
+		}
+	}
 }
 
 function runCodex(
@@ -385,12 +466,15 @@ async function finishCancelled(): Promise<void> {
 }
 
 function finishFailed(error: unknown): void {
+	console.error('codex job failed:', error);
 	blockQueue = [];
 	job.state = 'failed';
 	job.blockId = null;
 	job.queuedIds = [];
+	job.attempt = 0;
+	job.retryInSec = 0;
 	job.message = '번역이 중단되었습니다';
-	job.error = (error as Error).message.slice(0, 1000);
+	job.error = summarize(error); // 원시 stderr 대신 한 줄 — 원문은 콘솔에
 	publish();
 }
 
@@ -400,39 +484,56 @@ async function runJob(expectedUrl: string, chapterIds: string[]): Promise<void> 
 		for (let index = 0; index < chapterIds.length; index++) {
 			if (cancelRequested) return finishCancelled();
 			const chapterId = chapterIds[index];
-			let project = await getProject();
-			let chapter = project?.chapters.find((item) => item.id === chapterId);
-			if (!chapter) throw new Error(`chapter ${chapterId}을 찾지 못했습니다`);
+			const title = (await getChapterOrThrow(chapterId)).title;
 
 			job.chapterId = chapterId;
-			job.chapterTitle = chapter.title;
+			job.chapterTitle = title;
 			job.chapterIndex = index + 1;
-			job.message = `${chapter.title ?? chapterId} 번역 중`;
+			job.message = `${title ?? chapterId} 번역 중`;
 			publish();
 
-			while (true) {
-				if (cancelRequested) return finishCancelled();
-				project = await getProject();
-				chapter = project?.chapters.find((item) => item.id === chapterId);
-				if (!chapter) throw new Error(`chapter ${chapterId}을 찾지 못했습니다`);
-				const before = untranslatedCount(chapter);
-				if (before === 0) break;
+			try {
+				while (true) {
+					if (cancelRequested) return finishCancelled();
+					const before = untranslatedCount(await getChapterOrThrow(chapterId));
+					if (before === 0) break;
 
-				const limit = Math.min(settings.batchSize, before);
-				await runCodex(
-					expectedUrl,
-					batchPrompt(chapterId, limit, settings.guide),
-					settings,
-					BATCH_TIMEOUT_MS
-				);
-				if (cancelRequested) return finishCancelled();
+					const limit = Math.min(settings.batchSize, before);
+					// 제출이 0인 batch는 덜 끈질기게 — 모델이 정말 거부하는 경우 무한 반복을 막는다
+					let empty = 0;
+					await runWithRetry(async () => {
+						await runCodex(
+							expectedUrl,
+							batchPrompt(chapterId, limit, settings.guide),
+							settings,
+							BATCH_TIMEOUT_MS
+						);
+						if (cancelRequested) return;
+						const now = await getChapterOrThrow(chapterId);
+						if (untranslatedCount(now) >= before) {
+							if (++empty >= MAX_EMPTY_ATTEMPTS) {
+								throw new Error('Codex가 번역을 제출하지 않았습니다');
+							}
+							throw new NoProgressError('Codex가 번역을 제출하지 않았습니다');
+						}
+					}, MAX_ATTEMPTS);
+					if (cancelRequested) return finishCancelled();
 
-				project = await getProject();
-				chapter = project?.chapters.find((item) => item.id === chapterId);
-				if (!chapter) throw new Error(`chapter ${chapterId}을 찾지 못했습니다`);
-				const after = untranslatedCount(chapter);
-				if (after >= before) throw new Error('Codex가 번역을 제출하지 않았습니다');
-				job.translated = Math.min(job.total, job.translated + before - after);
+					const after = untranslatedCount(await getChapterOrThrow(chapterId));
+					job.translated = Math.min(job.total, job.translated + before - after);
+					publish();
+				}
+			} catch (chapterError) {
+				if (cancelRequested) return finishCancelled();
+				// 재시도를 다 썼다 — 이 chapter는 접어두고 다음으로 간다.
+				// 밤새 돌리는 사용 방식에서 한 챕터 때문에 나머지가 멈추면 안 된다.
+				console.error(`chapter ${chapterId} 건너뜀:`, chapterError);
+				job.failedChapters = [
+					...job.failedChapters,
+					{ id: chapterId, title, reason: summarize(chapterError) }
+				];
+				job.attempt = 0;
+				job.retryInSec = 0;
 				publish();
 			}
 		}
@@ -440,8 +541,13 @@ async function runJob(expectedUrl: string, chapterIds: string[]): Promise<void> 
 		job.state = 'completed';
 		job.chapterId = null;
 		job.chapterTitle = null;
-		job.translated = job.total;
-		job.message = '미번역 block 번역을 완료했습니다';
+		job.attempt = 0;
+		job.retryInSec = 0;
+		const skipped = job.failedChapters.length;
+		job.translated = skipped ? job.translated : job.total;
+		job.message = skipped
+			? `${skipped}개 chapter를 건너뛰었습니다 — 아래에서 다시 시도할 수 있습니다`
+			: '미번역 block 번역을 완료했습니다';
 		publish();
 	} catch (error) {
 		if (cancelRequested) return finishCancelled();
@@ -472,11 +578,15 @@ async function runBlockJob(expectedUrl: string): Promise<void> {
 			publish();
 
 			const before = found.block.updatedAt;
-			await runCodex(
-				expectedUrl,
-				blockPrompt(found.chapter.id, blockId, settings.guide),
-				settings,
-				BLOCK_TIMEOUT_MS
+			await runWithRetry(
+				() =>
+					runCodex(
+						expectedUrl,
+						blockPrompt(found.chapter.id, blockId, settings.guide),
+						settings,
+						BLOCK_TIMEOUT_MS
+					),
+				MAX_ATTEMPTS
 			);
 			if (cancelRequested) return finishCancelled();
 

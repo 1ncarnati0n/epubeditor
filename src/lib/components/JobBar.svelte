@@ -1,0 +1,126 @@
+<script lang="ts">
+	import { editor, stopCodexTranslation } from '$lib/client/state.svelte';
+
+	const job = $derived(editor.codex?.job);
+	const running = $derived(job?.state === 'running' || job?.state === 'stopping');
+	const pct = $derived(job?.total ? Math.min(100, (job.translated / job.total) * 100) : 0);
+
+	// 지금까지의 속도로 남은 시간을 어림한다 — 정확할 필요는 없고 "한참 남았나"를 알면 된다
+	let now = $state(Date.now());
+	$effect(() => {
+		if (!running) return;
+		const t = setInterval(() => (now = Date.now()), 1000);
+		return () => clearInterval(t);
+	});
+	const remain = $derived.by(() => {
+		if (!job?.startedAt || !job.translated || !job.total) return null;
+		const perBlock = (now - job.startedAt) / job.translated;
+		const left = Math.round((perBlock * (job.total - job.translated)) / 1000);
+		if (left <= 0) return null;
+		if (left < 90) return `약 ${left}초 남음`;
+		return `약 ${Math.round(left / 60)}분 남음`;
+	});
+	const chapterName = $derived(
+		editor.project?.chapters.find((c) => c.id === job?.chapterId)?.title ?? job?.chapterId ?? ''
+	);
+</script>
+
+{#if running}
+	<div class="jobbar" role="status" aria-live="polite">
+		<div class="track" aria-hidden="true">
+			<i style:width="{pct}%"></i>
+		</div>
+		<div class="line">
+			<span class="dot" aria-hidden="true"></span>
+			{#if job?.attempt}
+				<strong class="retry">
+					일시 오류 · 재시도 {job.attempt}/5{job.retryInSec ? ` · ${job.retryInSec}초 후` : ''}
+				</strong>
+			{:else}
+				<strong>{job?.state === 'stopping' ? '중지하는 중' : '번역 중'}</strong>
+			{/if}
+			<span class="what">{chapterName}</span>
+			<span class="num">{job?.translated ?? 0}/{job?.total ?? 0}</span>
+			{#if editor.arrived}<span class="new">+{editor.arrived}</span>{/if}
+			{#if job?.queuedIds.length}<span class="q">대기 {job.queuedIds.length}</span>{/if}
+			{#if remain}<span class="eta">{remain}</span>{/if}
+			<button disabled={job?.state === 'stopping'} onclick={() => void stopCodexTranslation()}>
+				중지
+			</button>
+		</div>
+	</div>
+{/if}
+
+<style>
+	.jobbar {
+		position: relative;
+		z-index: 12;
+		flex-shrink: 0;
+		border-bottom: 1px solid color-mix(in srgb, var(--draft) 35%, var(--line));
+		background: color-mix(in srgb, var(--draft) 7%, var(--paper));
+	}
+	.track {
+		height: 3px;
+		background: color-mix(in srgb, var(--draft) 18%, transparent);
+	}
+	.track i {
+		display: block;
+		height: 100%;
+		background: var(--draft);
+		transition: width 0.4s ease-out;
+	}
+	.line {
+		display: flex;
+		align-items: center;
+		gap: 0.7rem;
+		padding: 0.3rem 1.25rem;
+		font-size: 0.76rem;
+	}
+	.dot {
+		width: 7px;
+		height: 7px;
+		border-radius: 50%;
+		background: var(--draft);
+		animation: pulse 1.4s ease-in-out infinite;
+	}
+	@keyframes pulse {
+		50% {
+			opacity: 0.25;
+		}
+	}
+	strong {
+		color: var(--draft);
+		white-space: nowrap;
+	}
+	strong.retry {
+		color: var(--warn);
+	}
+	.what {
+		min-width: 0;
+		flex: 1;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		color: var(--muted);
+	}
+	.num,
+	.eta,
+	.q {
+		color: var(--muted);
+		font-variant-numeric: tabular-nums;
+	}
+	.new {
+		color: var(--draft);
+		font-variant-numeric: tabular-nums;
+	}
+	button {
+		border: 1px solid color-mix(in srgb, var(--draft) 45%, transparent);
+		padding: 0.12rem 0.6rem;
+		color: var(--draft);
+		font-size: 0.72rem;
+	}
+	button:disabled {
+		cursor: default;
+		opacity: 0.5;
+	}
+</style>

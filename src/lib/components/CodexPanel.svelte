@@ -7,6 +7,7 @@
 		stopCodexTranslation
 	} from '$lib/client/state.svelte';
 	import type { CodexTranslationScope } from '$lib/types';
+	import Segmented from './Segmented.svelte';
 
 	let scope: CodexTranslationScope = $state('chapter');
 	let busy = $state(false);
@@ -50,6 +51,20 @@
 		} finally {
 			busy = false;
 		}
+	}
+
+	/** 건너뛴 chapter만 다시 — 하나씩 순서대로 (잡은 한 번에 하나만 돈다) */
+	async function retryFailed(): Promise<string | null> {
+		for (const failed of job?.failedChapters ?? []) {
+			const problem = await startCodexTranslation('chapter', failed.id);
+			if (problem) return problem;
+			// 이 chapter가 끝날 때까지 기다린 뒤 다음으로
+			while (editor.codex?.job.state === 'running' || editor.codex?.job.state === 'stopping') {
+				await new Promise((r) => setTimeout(r, 800));
+			}
+			if (editor.codex?.job.state === 'cancelled') return null;
+		}
+		return null;
 	}
 
 	async function copyLogin() {
@@ -130,32 +145,41 @@
 			</section>
 		{:else}
 			{#if job && job.state !== 'idle'}
-				<div class="result {job.state}" aria-live="polite">
+				<div class="result {job.state}" class:skipped={job.failedChapters.length} aria-live="polite">
 					<strong>
-						{job.state === 'completed'
-							? '번역 완료'
-							: job.state === 'cancelled'
-								? '번역 중지됨'
-								: '번역 실패'}
+						{job.failedChapters.length
+							? '일부 chapter 건너뜀'
+							: job.state === 'completed'
+								? '번역 완료'
+								: job.state === 'cancelled'
+									? '번역 중지됨'
+									: '번역 실패'}
 					</strong>
 					<p>{job.error ?? job.message}</p>
+					{#if job.failedChapters.length}
+						<ul class="failed">
+							{#each job.failedChapters as f (f.id)}
+								<li><span>{f.title ?? f.id}</span><small>{f.reason}</small></li>
+							{/each}
+						</ul>
+						<button class="primary" disabled={busy} onclick={() => act(retryFailed)}>
+							{busy ? '다시 시도 중…' : '실패한 chapter만 다시 번역'}
+						</button>
+					{/if}
 				</div>
 			{/if}
 
 			<section class="scope">
 				<div class="label">번역 범위</div>
-				<div class="choices" role="group" aria-label="번역 범위">
-					<button
-						class:on={scope === 'chapter'}
-						aria-pressed={scope === 'chapter'}
-						onclick={() => (scope = 'chapter')}>현재 chapter</button
-					>
-					<button
-						class:on={scope === 'book'}
-						aria-pressed={scope === 'book'}
-						onclick={() => (scope = 'book')}>책 전체</button
-					>
-				</div>
+				<Segmented
+					label="번역 범위"
+					value={scope}
+					items={[
+						{ key: 'chapter', label: '현재 chapter' },
+						{ key: 'book', label: '책 전체' }
+					]}
+					pick={(key) => (scope = key as CodexTranslationScope)}
+				/>
 				<div class="selection">
 					{#if scope === 'chapter'}
 						<strong>{currentChapter?.title ?? editor.chapterId ?? 'chapter 미선택'}</strong>
@@ -394,13 +418,6 @@
 		color: var(--muted);
 		font-size: 0.76rem;
 	}
-	.choices button + button {
-		border-left: 1px solid var(--line);
-	}
-	.choices button.on {
-		background: var(--sealed);
-		color: white;
-	}
 	.selection {
 		display: flex;
 		flex-direction: column;
@@ -465,10 +482,30 @@
 		padding: 0.65rem 0.75rem;
 	}
 	.result.failed {
-		border-color: #9d3f32;
+		border-color: var(--warn);
 	}
 	.result.cancelled {
 		border-color: var(--draft);
+	}
+	.result.skipped {
+		border-color: var(--warn);
+	}
+	.failed {
+		margin: 0 0 0.6rem;
+		padding: 0;
+		list-style: none;
+	}
+	.failed li {
+		border-top: 1px solid var(--line);
+		padding: 0.35rem 0;
+	}
+	.failed span {
+		display: block;
+		font-size: 0.78rem;
+	}
+	.failed small {
+		color: var(--warn);
+		font-size: 0.68rem;
 	}
 	.result p {
 		margin-bottom: 0;
@@ -521,6 +558,6 @@
 	}
 	.notice {
 		margin-top: 1rem;
-		color: #9d3f32;
+		color: var(--warn);
 	}
 </style>

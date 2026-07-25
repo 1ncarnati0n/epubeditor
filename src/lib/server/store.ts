@@ -11,7 +11,8 @@ import type {
 	StoredProject,
 	StoredTranslation
 } from '$lib/types';
-import { defaultCodexSettings, defaultTypography } from '$lib/types';
+import type { BookSummary, WorkSession } from '$lib/types';
+import { defaultCodexSettings, defaultSession, defaultTypography } from '$lib/types';
 import { broadcast } from './events';
 import { epubSha256, parseEpub, sourceHash } from './epub/parse';
 
@@ -34,9 +35,13 @@ function toStoredV2(raw: Record<string, unknown>, epubHash: string): StoredProje
 		version: 2 as const,
 		bookId: String(raw.bookId ?? ''),
 		epubSha256: (raw.epubSha256 as string) || epubHash,
+		title: String(raw.title ?? ''),
+		creator: (raw.creator as string) ?? null,
+		updatedAt: Number(raw.updatedAt) || 0,
 		translationGuide: guide,
 		typography: { ...defaultTypography(), ...(raw.typography as object) },
-		codex
+		codex,
+		session: { ...defaultSession(), ...(raw.session as object) }
 	};
 	delete (base.codex as { instructions?: string }).instructions;
 
@@ -63,6 +68,7 @@ function join(fresh: Project, stored: StoredProject): Project {
 	fresh.translationGuide = stored.translationGuide;
 	fresh.typography = stored.typography;
 	fresh.codex = stored.codex;
+	fresh.session = stored.session;
 	for (const chapter of fresh.chapters) {
 		for (const block of chapter.blocks) {
 			const t = stored.translations[block.id];
@@ -94,9 +100,13 @@ function toStored(p: Project): StoredProject {
 		version: 2,
 		bookId: p.bookId,
 		epubSha256: sourceSha,
+		title: p.title,
+		creator: p.creator,
+		updatedAt: Date.now(),
 		translationGuide: p.translationGuide,
 		typography: p.typography,
 		codex: p.codex,
+		session: p.session,
 		translations
 	};
 }
@@ -132,10 +142,7 @@ export async function resolveStale(
 			resolved++;
 		}
 	}
-	if (resolved) {
-		scheduleSave();
-		await persistNow();
-	}
+	if (resolved) await persistNow(); // setBlock이 이미 dirty로 만들었다
 	return { resolved, chapterIds: [...chapterIds] };
 }
 
@@ -184,10 +191,7 @@ async function hydrate(): Promise<void> {
 	}
 	if (!best) return;
 	try {
-		await adopt(
-			new Uint8Array(await readFile(path.join(DATA_DIR, best.dir, 'source.epub'))),
-			JSON.parse(await readFile(path.join(DATA_DIR, best.dir, 'project.json'), 'utf8'))
-		);
+		await adoptFrom(best.dir);
 	} catch (e) {
 		console.error('failed to restore project from disk:', e);
 		loadError =
@@ -253,6 +257,108 @@ async function wouldDestroyWork(file: string, next: StoredProject): Promise<bool
 
 export function getLoadError(): string | null {
 	return loadError;
+}
+
+/** data/<bookId>/ 하나를 활성 프로젝트로 올린다 (hydrate·책 전환 공용) */
+async function adoptFrom(bookId: string): Promise<void> {
+	await adopt(
+		new Uint8Array(await readFile(path.join(DATA_DIR, bookId, 'source.epub'))),
+		JSON.parse(await readFile(path.join(DATA_DIR, bookId, 'project.json'), 'utf8'))
+	);
+}
+
+/* ---------- 책장: 여러 권을 오간다 ---------- */
+
+export async function listBooks(): Promise<BookSummary[]> {
+	await hydrate();
+	let dirs: string[] = [];
+	try {
+		dirs = await readdir(DATA_DIR);
+	} catch {
+		return [];
+	}
+	const books: BookSummary[] = [];
+	for (const bookId of dirs) {
+		try {
+			const dir = path.join(DATA_DIR, bookId);
+			const stored = JSON.parse(await readFile(path.join(dir, 'project.json'), 'utf8'));
+			const bytes = (await stat(path.join(dir, 'source.epub'))).size;
+			// 활성 책은 메모리 상태가 최신이라 그쪽에서 센다 (저장 전 편집도 반영)
+			const live = project?.bookId === bookId ? project : null;
+			const counts = live
+				? live.chapters.reduce(
+						(a, c) => {
+							for (const b of c.blocks) {
+								a.total++;
+								if (b.stale) a.stale++;
+								if (b.status === 'machine') a.machine++;
+								else if (b.status === 'reviewed') a.reviewed++;
+							}
+							return a;
+						},
+						{ total: 0, machine: 0, reviewed: 0, stale: 0 }
+					)
+				: countStored(stored);
+			books.push({
+				bookId,
+				title: live?.title || stored.title || bookId,
+				creator: live?.creator ?? stored.creator ?? null,
+				...counts,
+				updatedAt: stored.updatedAt || (await stat(path.join(dir, 'project.json'))).mtimeMs,
+				bytes,
+				active: project?.bookId === bookId
+			});
+		} catch {
+			// project.json이나 source.epub이 없는 폴더는 책이 아니다
+		}
+	}
+	return books.sort((a, b) => b.updatedAt - a.updatedAt);
+}
+
+/** 열지 않은 책은 총 block 수를 알 수 없다(원문을 파싱해야 하므로) — 번역 수만 센다 */
+function countStored(stored: Record<string, unknown>): {
+	total: number;
+	machine: number;
+	reviewed: number;
+	stale: number;
+} {
+	const counts = { total: 0, machine: 0, reviewed: 0, stale: 0 };
+	if (stored.translations) {
+		for (const t of Object.values(stored.translations as Record<string, StoredTranslation>)) {
+			if (t.status === 'machine') counts.machine++;
+			else if (t.status === 'reviewed') counts.reviewed++;
+		}
+	} else {
+		for (const c of (stored.chapters as { blocks?: Block[] }[]) ?? []) {
+			for (const b of c.blocks ?? []) {
+				counts.total++;
+				if (b.status === 'machine') counts.machine++;
+				else if (b.status === 'reviewed') counts.reviewed++;
+			}
+		}
+	}
+	return counts;
+}
+
+export async function openBook(bookId: string): Promise<Project> {
+	if (!/^[0-9a-f]{12}$/.test(bookId)) throw new Error('알 수 없는 책입니다'); // 경로 조작 차단
+	if (project?.bookId === bookId) return project;
+	await persistNow(); // 지금 책의 debounce 대기분을 먼저 디스크에 확정
+	await adoptFrom(bookId);
+	await persistNow(); // updatedAt을 올려 '마지막 작업' 정렬과 hydrate 선택이 맞게
+	return project as Project;
+}
+
+export async function deleteBook(bookId: string): Promise<void> {
+	if (!/^[0-9a-f]{12}$/.test(bookId)) throw new Error('알 수 없는 책입니다');
+	if (project?.bookId === bookId) throw new Error('지금 열려 있는 책은 지울 수 없습니다');
+	await rm(path.join(DATA_DIR, bookId), { recursive: true, force: true });
+}
+
+export function setSession(patch: Partial<WorkSession>): void {
+	if (!project) return;
+	project.session = { ...project.session, ...patch };
+	scheduleSave();
 }
 
 export async function openEpub(buf: Uint8Array): Promise<Project> {

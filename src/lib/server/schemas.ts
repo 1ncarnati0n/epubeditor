@@ -26,3 +26,12 @@ export const codexSchema = z
 
 /** 번역 지침 — 프롬프트에 통째로 실리므로 길이만 제한한다 */
 export const translationGuideSchema = z.string().max(4000);
+
+/** 책마다 덮던 자리 */
+export const sessionSchema = z
+	.object({
+		chapterId: z.string().max(40).nullable(),
+		cursor: z.string().max(60).nullable(),
+		filter: z.enum(['all', 'untranslated', 'machine', 'stale'])
+	})
+	.partial();

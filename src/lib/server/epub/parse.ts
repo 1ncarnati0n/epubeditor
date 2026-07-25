@@ -2,7 +2,7 @@ import { unzipSync, strFromU8 } from 'fflate';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 import type { Block, Chapter, Project } from '$lib/types';
-import { defaultCodexSettings, defaultTypography } from '$lib/types';
+import { defaultCodexSettings, defaultSession, defaultTypography } from '$lib/types';
 import { findBlockElements } from './blocks';
 import { innerXml, loadXml } from '$lib/server/xml';
 
@@ -99,6 +99,7 @@ export function parseEpub(data: Uint8Array): ParsedEpub {
 			translationGuide: '',
 			typography: defaultTypography(),
 			codex: defaultCodexSettings(),
+			session: defaultSession(),
 			chapters
 		},
 		entries,

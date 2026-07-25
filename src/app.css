@@ -7,6 +7,7 @@
 	--line: #e4e1d8;
 	--draft: #a97a1f; /* 치자 — 초벌 번역 */
 	--sealed: #2f4b8f; /* 쪽빛 — 검수 완료 */
+	--warn: #9d3f32; /* 주토 — 경고·실패·원문 어긋남 */
 	--fresh: #eef2fb;
 	/* 편집 화면 행 여백 — 조판 패널의 '밀도'가 바꾼다 (localStorage) */
 	--row-pad-y: 0.8rem;

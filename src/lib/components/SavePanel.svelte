@@ -267,7 +267,7 @@
 	}
 	.notice {
 		margin-top: 1rem;
-		color: #9d3f32;
+		color: var(--warn);
 		font-size: 0.78rem;
 	}
 </style>

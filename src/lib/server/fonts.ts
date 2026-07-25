@@ -66,10 +66,21 @@ export function typographyCss(
 }
 `
 		: '';
+	/*
+	 * font-family는 body에만 걸면 안 된다. 책이 `#sbo-rt-content div{font-family:Verdana}`
+	 * 같은 규칙을 갖고 있으면, 직접 매칭되는 그 규칙이 body에서 *상속된* 값을 이긴다
+	 * (조상의 !important는 조상에게만 중요하다). 그래서 본문 요소에 직접 건다.
+	 * 등폭 요소는 책의 의도를 존중해 제외. `:not()`은 단일 인자 연쇄 — 구형 리더까지 안전하다.
+	 */
+	const family = font
+		? `body, body *:not(code):not(pre):not(kbd):not(samp):not(tt){
+	font-family:'${font.family}',${font.generic} !important;
+}
+`
+		: '';
 	return `${faces}
-html{font-size:${t.fontSizePercent}%;}
+${family}html{font-size:${t.fontSizePercent}%;}
 body{
-${font ? `\tfont-family:'${font.family}',${font.generic} !important;` : ''}
 	line-height:${t.lineHeight} !important;
 	padding-left:${t.marginPercent}% !important;
 	padding-right:${t.marginPercent}% !important;

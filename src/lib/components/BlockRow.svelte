@@ -161,14 +161,19 @@
 	.row.current {
 		background: color-mix(in srgb, var(--sealed) 3%, transparent);
 	}
+	/* 방금 도착한 번역 — 배경 페이드 + 치자색 가장자리 (현재 행의 쪽빛과 구분된다) */
 	.row.fresh .tgt {
-		animation: ink 1.6s ease-out;
+		animation: ink 3.8s ease-out;
+		box-shadow: inset -3px 0 0 var(--draft);
 	}
 	@keyframes ink {
-		from {
+		0% {
 			background: var(--fresh);
 		}
-		to {
+		55% {
+			background: var(--fresh);
+		}
+		100% {
 			background: transparent;
 		}
 	}
@@ -197,13 +202,14 @@
 	}
 	/* 번역한 뒤 원문이 바뀐 행 */
 	.row.stale {
-		background: color-mix(in srgb, #9d3f32 4%, transparent);
+		background: color-mix(in srgb, var(--warn) 4%, transparent);
 	}
 	.row.stale .src {
-		box-shadow: inset 3px 0 0 #9d3f32;
+		box-shadow: inset 3px 0 0 var(--warn);
 	}
+	/* 조판에서 고른 서체를 작업하는 자리에서도 보이게 (--font-target은 +page.svelte가 설정) */
 	.tgt {
-		font-family: var(--font-ko);
+		font-family: var(--font-target, var(--font-ko));
 		font-size: 0.95rem;
 		line-height: 1.8;
 	}
@@ -309,8 +315,8 @@
 	}
 	.run.failed {
 		opacity: 1;
-		border-color: #9d3f32;
-		color: #9d3f32;
+		border-color: var(--warn);
+		color: var(--warn);
 	}
 	.spin {
 		width: 9px;

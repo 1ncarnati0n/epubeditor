@@ -5,6 +5,11 @@
 	function label(c: ChapterSummary): string {
 		return c.title?.split('\n')[0].trim() || (c.href.split('/').pop() ?? c.id);
 	}
+
+	/** Codex가 지금 붙들고 있는 챕터 — 어디를 하고 있는지 한눈에 */
+	const working = $derived(
+		editor.codex?.job.state === 'running' ? editor.codex.job.chapterId : null
+	);
 </script>
 
 <nav>
@@ -14,6 +19,7 @@
 			<button
 				class="ch"
 				class:active={editor.chapterId === c.id}
+				class:working={working === c.id}
 				aria-current={editor.chapterId === c.id ? 'true' : undefined}
 				onclick={() => {
 					openChapter(c.id);
@@ -62,6 +68,23 @@
 		background: var(--paper);
 		border-left-color: var(--sealed);
 	}
+	/* 지금 Codex가 번역 중인 챕터 */
+	.ch.working {
+		border-left-color: var(--draft);
+		background: color-mix(in srgb, var(--draft) 6%, transparent);
+	}
+	.ch.working .name::after {
+		content: '번역 중';
+		margin-left: 0.45rem;
+		color: var(--draft);
+		font-size: 0.65rem;
+		animation: blink 1.4s ease-in-out infinite;
+	}
+	@keyframes blink {
+		50% {
+			opacity: 0.3;
+		}
+	}
 	.name {
 		display: block;
 		font-size: 0.85rem;
@@ -79,7 +102,7 @@
 	}
 	.meta b {
 		font-weight: 400;
-		color: #9d3f32;
+		color: var(--warn);
 	}
 	.bar {
 		display: flex;
