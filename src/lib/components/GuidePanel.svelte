@@ -4,6 +4,17 @@
 	const MAX = 4000;
 	const saved = $derived(editor.project?.translationGuide ?? '');
 
+	/**
+	 * 예시가 아니라 **그대로 써도 되는 초안**. 특정 책에 매이지 않게 썼으니
+	 * 넣고 필요한 줄만 고치면 된다.
+	 */
+	const EXAMPLE = `- 문체는 평어체(-다)로 통일한다.
+- 대화는 구어체로, 서술은 담백하게.
+- 원문의 쉼표·세미콜론을 그대로 옮기지 말고 한국어 호흡에 맞춰 끊는다.
+- 널리 쓰이는 한국어 용어가 있으면 그것을 쓰고, 없으면 원어를 그대로 둔다.
+- 고유명사는 처음 나올 때만 원어를 괄호로 병기한다. 예: 서츠케버(Sutskever)
+- 원문에 없는 말을 보태지 않는다. 직역이 어색하면 뜻을 살려 자연스럽게.`;
+
 	let draft = $state('');
 	let loaded = $state<string | null>(null);
 
@@ -22,6 +33,11 @@
 		await saveTranslationGuide(text);
 		loaded = text;
 	}
+
+	/** 비어 있으면 예문으로 시작하고, 이미 쓴 게 있으면 아래에 덧붙인다 */
+	function insertExample() {
+		draft = draft.trim() ? `${draft.trimEnd()}\n${EXAMPLE}` : EXAMPLE;
+	}
 </script>
 
 <aside class="panel" aria-label="번역 지침">
@@ -35,11 +51,18 @@
 		bind:value={draft}
 		maxlength={MAX}
 		spellcheck="false"
-		placeholder={'예)\n- 문체는 평어체(-다)로 통일\n- Alice → 앨리스, Cheshire Cat → 체셔 고양이\n- 대화는 구어체로, 서술은 담백하게\n- 원문의 쉼표를 그대로 옮기지 말고 한국어 호흡에 맞출 것'}
+		placeholder={EXAMPLE}
 	></textarea>
 
 	<div class="bar">
 		<small class:over={draft.length > MAX * 0.9}>{draft.length}/{MAX}</small>
+		<button
+			class="example"
+			title="아래 예문을 그대로 넣습니다 — 넣고 고쳐 쓰면 됩니다"
+			onclick={insertExample}
+		>
+			{draft.trim() ? '예문 덧붙이기' : '예문 넣기'}
+		</button>
 		<button class="primary" disabled={!dirty} onclick={apply}>
 			{dirty ? '저장' : '저장됨'}
 		</button>
@@ -106,9 +129,20 @@
 		margin-top: 0.6rem;
 	}
 	.bar small {
+		flex: 1;
 		color: var(--muted);
 		font-size: 0.7rem;
 		font-variant-numeric: tabular-nums;
+	}
+	.example {
+		border: 1px solid var(--line);
+		padding: 0.4rem 0.7rem;
+		color: var(--muted);
+		font-size: 0.76rem;
+	}
+	.example:hover {
+		border-color: var(--sealed);
+		color: var(--sealed);
 	}
 	.bar small.over {
 		color: var(--draft);
