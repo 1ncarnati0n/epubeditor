@@ -4,6 +4,13 @@
 
 	const t = $derived(editor.project?.typography);
 
+	const COLORS: { value: string | null; label: string }[] = [
+		{ value: null, label: '책 원본 그대로' },
+		{ value: '#1c1b18', label: '먹 (가장 진하게)' },
+		{ value: '#33312c', label: '진한 회갈' },
+		{ value: '#55524a', label: '부드럽게' }
+	];
+
 	function num(e: Event): number {
 		return Number((e.currentTarget as HTMLInputElement).value);
 	}
@@ -56,6 +63,36 @@
 				<option value="noto-serif-kr">Noto Serif KR (명조)</option>
 			</select>
 		</label>
+
+		<div class="field">
+			<span>본문 색</span>
+			<div class="swatches">
+				{#each COLORS as c (c.value ?? 'keep')}
+					<button
+						class:on={t.textColor === c.value}
+						title={c.label}
+						aria-label={c.label}
+						aria-pressed={t.textColor === c.value}
+						style:background={c.value ?? 'transparent'}
+						onclick={() => saveTypography({ textColor: c.value })}
+					>
+						{#if c.value === null}원본{/if}
+					</button>
+				{/each}
+				<input
+					type="color"
+					title="직접 고르기"
+					aria-label="본문 색 직접 고르기"
+					value={t.textColor ?? '#1c1b18'}
+					oninput={(e) => saveTypography({ textColor: e.currentTarget.value })}
+				/>
+			</div>
+			<small>
+				{t.textColor
+					? '책 원본 색을 무시하고 이 색으로 칠합니다 (링크 제외)'
+					: '책이 정한 색을 그대로 씁니다'}
+			</small>
+		</div>
 
 		<label class="field">
 			<span>글자 크기 <em>{t.fontSizePercent}%</em></span>
@@ -160,6 +197,30 @@
 		padding: 0.3rem;
 		border: 1px solid var(--line);
 		background: var(--paper);
+	}
+	.swatches {
+		display: flex;
+		align-items: center;
+		gap: 0.3rem;
+	}
+	.swatches button {
+		width: 26px;
+		height: 26px;
+		border: 1px solid var(--line);
+		font-size: 0.6rem;
+		color: var(--muted);
+	}
+	.swatches button.on {
+		outline: 2px solid var(--sealed);
+		outline-offset: 1px;
+	}
+	.swatches input[type='color'] {
+		width: 26px;
+		height: 26px;
+		padding: 0;
+		border: 1px solid var(--line);
+		background: var(--paper);
+		cursor: pointer;
 	}
 	.field small {
 		display: block;

@@ -33,6 +33,8 @@ export interface Typography {
 	marginPercent: number;
 	/** 대역본: 번역문 아래에 원문을 작게 병기 (미리보기·내보내기 공통) */
 	bilingual: boolean;
+	/** 본문 글자색 (#rrggbb). null = 책 원본 그대로 */
+	textColor: string | null;
 }
 
 /** how the editor invokes `codex exec` — per book */
@@ -40,6 +42,10 @@ export interface CodexSettings {
 	model: string | null; // null = whatever the Codex CLI defaults to
 	effort: string | null; // model_reasoning_effort; null = the model's own default
 	batchSize: number; // blocks per codex exec run
+	/** 동시에 돌릴 codex exec 수 (1~4). 속도는 여기서 가장 크게 갈린다 */
+	concurrency: number;
+	/** service_tier="fast" — 카탈로그 기준 1.5배 속도, 할당량을 더 쓴다 */
+	fastTier: boolean;
 }
 
 /** 디스크에 남는 것 — 번역과 설정뿐. 원문 텍스트는 한 글자도 담기지 않는다. */
@@ -119,12 +125,13 @@ export function defaultTypography(): Typography {
 		paraSpacingEm: 0.5,
 		textIndentEm: 0,
 		marginPercent: 5,
-		bilingual: false
+		bilingual: false,
+		textColor: null
 	};
 }
 
 export function defaultCodexSettings(): CodexSettings {
-	return { model: null, effort: null, batchSize: 20 };
+	return { model: null, effort: null, batchSize: 40, concurrency: 3, fastTier: true };
 }
 
 /** a restore point on disk: data/<bookId>/snapshots/<id>.json */
@@ -194,6 +201,8 @@ export interface CodexJobStatus {
 	blockId: string | null;
 	/** block scope: presses waiting behind the current one — ids so each row can show itself */
 	queuedIds: string[];
+	/** 지금 돌고 있는 codex exec 수 */
+	workers: number;
 	/** 일시 장애로 같은 batch를 다시 시도 중일 때 1..MAX, 아니면 0 */
 	attempt: number;
 	/** 다음 재시도까지 남은 초 (0이면 대기 중 아님) */

@@ -28,6 +28,8 @@ export class SourceMismatchError extends Error {}
  */
 function toStoredV2(raw: Record<string, unknown>, epubHash: string): StoredProject {
 	const codex = { ...defaultCodexSettings(), ...(raw.codex as object) };
+	// 옛 기본값 20은 속도 개선 전의 값 — 새 기본값으로 한 번 올린다
+	if (codex.batchSize === 20) codex.batchSize = defaultCodexSettings().batchSize;
 	const guide =
 		(raw.translationGuide as string) ??
 		((raw.codex as { instructions?: string })?.instructions || '');

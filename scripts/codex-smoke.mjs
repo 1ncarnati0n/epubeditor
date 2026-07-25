@@ -11,6 +11,7 @@ const temp = await mkdtemp(path.join(os.tmpdir(), 'epubeditor-codex-'));
 const fakeCodex = path.join(temp, 'codex');
 const stateFile = path.join(temp, 'mcp.json');
 const argvLog = path.join(temp, 'argv.jsonl');
+const runsLog = path.join(temp, 'runs.jsonl');
 
 const MODEL = 'smoke-model';
 const EFFORT = 'xhigh';
@@ -50,6 +51,7 @@ if (args[0] === 'mcp' && args[1] === 'get') {
 	}
 }
 if (args[0] === 'exec') {
+	const startedAt = Date.now();
 	await appendFile(process.env.MOCK_CODEX_ARGV, JSON.stringify(args) + '\\n');
 	const prompt = args.at(-1);
 	// 실패 시나리오 주입: MOCK_FAIL 파일에 {mode, left}를 두면 그만큼 실패한다
@@ -95,20 +97,30 @@ if (args[0] === 'exec') {
 		return JSON.parse(body.result.content[0].text);
 	};
 	await new Promise((resolve) => setTimeout(resolve, 120));
+	let submitted = [];
+	// 배치와 단일 블록은 이제 둘 다 blockIds를 쓴다 — 프롬프트 종류로 구분한다
+	const isSingle = prompt.includes('Translate one EPUB block');
 	if (blockIds) {
 		const ids = JSON.parse('[' + blockIds + ']');
 		const page = await call('get_blocks', { chapterId, blockIds: ids }, 1);
-		await call('submit_translations', {
-			translations: page.blocks.map((block) => ({
-				id: block.id,
-				targetHtml: 'BLOCK ' + block.id
-			})),
-			overwriteReviewed: true
-		}, 2);
+		// 'No progress' 표식은 batch 경로의 무진행 시나리오 전용 — 블록 버튼은 항상 제출한다
+		const noProgress =
+			!isSingle && page.blocks.some((block) => block.sourceHtml.includes('No progress'));
+		if (!noProgress) {
+			submitted = page.blocks.map((b) => b.id);
+			await call('submit_translations', {
+				translations: page.blocks.map((block) => ({
+					id: block.id,
+					targetHtml: (isSingle ? 'BLOCK ' : '번역 ') + block.id
+				})),
+				overwriteReviewed: isSingle
+			}, 2);
+		}
 	} else {
 		const page = await call('get_blocks', { chapterId, status: 'untranslated', offset: 0, limit }, 1);
 		const noProgress = page.blocks.some((block) => block.sourceHtml.includes('No progress'));
 		if (page.blocks.length && !noProgress) {
+			submitted = page.blocks.map((b) => b.id);
 			await call('submit_translations', {
 				translations: page.blocks.map((block) => ({
 					id: block.id,
@@ -117,6 +129,13 @@ if (args[0] === 'exec') {
 				overwriteReviewed: false
 			}, 2);
 		}
+	}
+	// 무엇을 언제부터 언제까지 처리했는지 — 겹침·동시성 검증용
+	if (process.env.MOCK_CODEX_RUNS) {
+		await appendFile(
+			process.env.MOCK_CODEX_RUNS,
+			JSON.stringify({ startedAt, endedAt: Date.now(), ids: submitted }) + '\\n'
+		);
 	}
 	console.log(JSON.stringify({ type: 'thread.started', thread_id: 'mock' }));
 	console.log(JSON.stringify({ type: 'turn.completed', usage: {} }));
@@ -245,6 +264,7 @@ try {
 				MOCK_CODEX_STATE: stateFile,
 				MOCK_CODEX_ARGV: argvLog,
 				MOCK_CODEX_FAIL: path.join(temp, 'fail.json'),
+				MOCK_CODEX_RUNS: runsLog,
 				CODEX_HOME: temp, // 모델 카탈로그 없음 → models: [] 폴백 경로도 함께 검증
 				EPUBEDITOR_DATA_DIR: path.join(temp, 'data')
 			},
@@ -281,7 +301,13 @@ try {
 	await assertStatus(response, 200);
 	const project = await response.json();
 	const [ch1, ch2, ch3] = project.chapters.map((chapter) => chapter.id);
-	assert.deepEqual(project.codex, { model: null, effort: null, batchSize: 20 });
+	assert.deepEqual(project.codex, {
+		model: null,
+		effort: null,
+		batchSize: 40,
+		concurrency: 3,
+		fastTier: true
+	});
 	assert.equal(project.translationGuide, '');
 
 	// --- 1. 실행 설정과 번역 지침이 실제 codex 호출에 반영되는가 ---
@@ -289,7 +315,7 @@ try {
 		`${base}/api/settings`,
 		Object.assign(
 			json({
-				codex: { model: MODEL, effort: EFFORT, batchSize: BATCH },
+				codex: { model: MODEL, effort: EFFORT, batchSize: BATCH, concurrency: 1, fastTier: false },
 				translationGuide: GUIDE
 			}),
 			{ method: 'PATCH' }
@@ -311,8 +337,15 @@ try {
 		assert.ok(argv.includes(`model_reasoning_effort="${EFFORT}"`), '-c model_reasoning_effort');
 		assert.match(argv.at(-1), new RegExp(GUIDE), '번역 지침이 프롬프트에 포함');
 	}
-	assert.match(runs[0].at(-1), /limit=2/, '첫 batch는 설정한 크기');
-	assert.match(runs[1].at(-1), /limit=1/, '남은 만큼만');
+	// 일감은 blockIds로 못박아 넘긴다 — 워커가 여럿이어도 겹치지 않는 이유
+	const idsOf = (argv) => JSON.parse(/blockIds=(\[[^\]]*\])/.exec(argv.at(-1))[1]);
+	assert.equal(idsOf(runs[0]).length, BATCH, '첫 batch는 설정한 크기만큼 id를 받는다');
+	assert.equal(idsOf(runs[1]).length, 1, '남은 만큼만');
+	assert.equal(
+		new Set([...idsOf(runs[0]), ...idsOf(runs[1])]).size,
+		3,
+		'두 batch의 id가 겹치지 않는다'
+	);
 	assert.ok((await chapterBlocks(ch1)).every((block) => block.status === 'machine'));
 
 	// --- 2. 블록 버튼: 딱 한 block만, 검수됨도 덮어쓴다 ---
@@ -584,6 +617,67 @@ try {
 		'원시 로그를 그대로 노출하지 않는다'
 	);
 	await rm(failFile, { force: true });
+
+	// --- 6e. 병렬: 겹치지 않고 실제로 동시에 돈다 ---
+	// 두 번째 책의 남은 미번역을 동시 3 · 배치 1로 돌린다 (배치를 잘게 쪼개 겹칠 기회를 최대화)
+	await writeFile(runsLog, '');
+	await assertStatus(
+		await fetch(
+			`${base}/api/settings`,
+			Object.assign(json({ codex: { concurrency: 3, batchSize: 1, fastTier: true } }), {
+				method: 'PATCH'
+			})
+		),
+		200
+	);
+	await assertStatus(await fetch(`${base}/api/codex`, json({ action: 'start', scope: 'book' })), 202);
+	const parallel = await waitFor(
+		`${base}/api/codex`,
+		(s) => s.job.state === 'completed' || s.job.state === 'failed',
+		90_000
+	);
+	assert.equal(parallel.job.state, 'completed');
+
+	const execRuns = (await readFile(runsLog, 'utf8'))
+		.split('\n')
+		.filter(Boolean)
+		.map((l) => JSON.parse(l));
+
+	// (1) 같은 블록을 두 번 번역하지 않는다 — offset 기반이면 여기서 깨진다
+	const all = execRuns.flatMap((r) => r.ids);
+	assert.equal(new Set(all).size, all.length, `블록이 중복 제출됐다: ${all.length}건 중 ${new Set(all).size}개만 고유`);
+
+	// (2) 실제로 겹쳐서 돈다
+	const overlap = Math.max(
+		...execRuns.map((r) => execRuns.filter((o) => o.startedAt < r.endedAt && o.endedAt > r.startedAt).length)
+	);
+	assert.ok(overlap >= 2, `동시에 돌지 않았다 (최대 겹침 ${overlap})`);
+
+	// (3) service_tier가 전달된다 / 끄면 사라진다
+	const recent = (await execArgvs()).slice(-execRuns.length);
+	assert.ok(
+		recent.every((a) => a.includes('service_tier="fast"')),
+		'fastTier가 켜져 있으면 -c service_tier="fast"를 넘겨야 한다'
+	);
+	await assertStatus(
+		await fetch(
+			`${base}/api/settings`,
+			Object.assign(json({ codex: { fastTier: false, concurrency: 1, batchSize: 40 } }), {
+				method: 'PATCH'
+			})
+		),
+		200
+	);
+	const beforeOff = (await execArgvs()).length;
+	await assertStatus(
+		await fetch(`${base}/api/codex`, json({ action: 'start', scope: 'block', blockId: `${s0}:b0` })),
+		202
+	);
+	await waitFor(`${base}/api/codex`, (s) => s.job.state !== 'running', 60_000);
+	assert.ok(
+		(await execArgvs()).slice(beforeOff).every((a) => !a.includes('service_tier="fast"')),
+		'끄면 넘기지 않아야 한다'
+	);
 
 	// 삭제: 활성 책은 거부, 비활성 책은 사라진다
 	await fetch(`${base}/api/books/${project.bookId}`, json({}));

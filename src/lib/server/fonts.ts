@@ -42,7 +42,9 @@ export function fontById(id: FontId | null): FontDef | null {
 export function typographyCss(
 	t: Typography,
 	urlFor: (file: string) => string,
-	format: 'opentype' | 'woff2'
+	format: 'opentype' | 'woff2',
+	/** 미리보기는 늘 밝은 종이 위 — 책의 다크 모드 규칙을 되받아쳐야 한다 */
+	preview = false
 ): string {
 	const font = fontById(t.bodyFont);
 	const faces = font
@@ -78,8 +80,29 @@ export function typographyCss(
 }
 `
 		: '';
+	// 색도 font-family와 같은 이유로 body에만 걸면 안 된다. 링크는 구분되게 두려고 제외.
+	const TEXT = 'body, body *:not(a):not(code):not(pre):not(kbd):not(samp):not(tt)';
+	const color = t.textColor
+		? `${TEXT}{
+	color:${t.textColor} !important;
+}
+`
+		: '';
+	/*
+	 * 책들이 흔히 @media (prefers-color-scheme: dark)로 본문을 옅은 회색(#d6d7db 등)으로 바꾼다.
+	 * 어두운 배경을 전제한 색인데 미리보기 종이는 늘 밝아서, OS가 다크면 글씨가 사라진다.
+	 * `color-scheme`으로는 막을 수 없다(문서에도 iframe에도 걸어봤지만 prefers-color-scheme은 그대로다).
+	 * 그래서 같은 미디어 쿼리로 되받아친다 — 미리보기 전용이다. 내보낸 EPUB은 리더가 배경까지
+	 * 다크로 바꾸므로 책의 다크 규칙이 맞다.
+	 */
+	const previewDark = preview
+		? `@media (prefers-color-scheme: dark){
+	${TEXT}{ color:${t.textColor ?? '#1c1b18'} !important; }
+}
+`
+		: '';
 	return `${faces}
-${family}html{font-size:${t.fontSizePercent}%;}
+${family}${color}${previewDark}html{font-size:${t.fontSizePercent}%;}
 body{
 	line-height:${t.lineHeight} !important;
 	padding-left:${t.marginPercent}% !important;

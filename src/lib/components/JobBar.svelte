@@ -12,13 +12,21 @@
 		const t = setInterval(() => (now = Date.now()), 1000);
 		return () => clearInterval(t);
 	});
-	const remain = $derived.by(() => {
+	/** 설정을 바꿨을 때 이득을 눈으로 확인할 수 있도록 실측치를 보여준다 */
+	const rate = $derived.by(() => {
+		if (!job?.startedAt || !job.translated) return null;
+		const perMin = job.translated / ((now - job.startedAt) / 60_000);
+		return perMin >= 1 ? `${perMin.toFixed(0)} 블록/분` : `${perMin.toFixed(1)} 블록/분`;
+	});
+	const eta = $derived.by(() => {
 		if (!job?.startedAt || !job.translated || !job.total) return null;
 		const perBlock = (now - job.startedAt) / job.translated;
-		const left = Math.round((perBlock * (job.total - job.translated)) / 1000);
-		if (left <= 0) return null;
-		if (left < 90) return `약 ${left}초 남음`;
-		return `약 ${Math.round(left / 60)}분 남음`;
+		const leftMs = perBlock * (job.total - job.translated);
+		if (leftMs <= 0) return null;
+		const done = new Date(now + leftMs);
+		const mins = Math.round(leftMs / 60_000);
+		const when = done.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
+		return mins < 2 ? '곧 끝남' : `${when} 완료 예정 (${mins < 90 ? `${mins}분` : `${(mins / 60).toFixed(1)}시간`})`;
 	});
 	const chapterName = $derived(
 		editor.project?.chapters.find((c) => c.id === job?.chapterId)?.title ?? job?.chapterId ?? ''
@@ -42,8 +50,10 @@
 			<span class="what">{chapterName}</span>
 			<span class="num">{job?.translated ?? 0}/{job?.total ?? 0}</span>
 			{#if editor.arrived}<span class="new">+{editor.arrived}</span>{/if}
+			{#if job && job.workers > 1}<span class="q">동시 {job.workers}</span>{/if}
 			{#if job?.queuedIds.length}<span class="q">대기 {job.queuedIds.length}</span>{/if}
-			{#if remain}<span class="eta">{remain}</span>{/if}
+			{#if rate}<span class="rate">{rate}</span>{/if}
+			{#if eta}<span class="eta">{eta}</span>{/if}
 			<button disabled={job?.state === 'stopping'} onclick={() => void stopCodexTranslation()}>
 				중지
 			</button>
@@ -107,6 +117,10 @@
 	.eta,
 	.q {
 		color: var(--muted);
+		font-variant-numeric: tabular-nums;
+	}
+	.rate {
+		color: var(--ink);
 		font-variant-numeric: tabular-nums;
 	}
 	.new {

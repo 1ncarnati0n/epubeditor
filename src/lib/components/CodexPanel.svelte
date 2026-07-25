@@ -30,6 +30,17 @@
 	const selectedPending = $derived(scope === 'chapter' ? chapterPending : bookPending);
 	const batches = $derived(Math.ceil(selectedPending / (settings?.batchSize || 20)));
 
+	/** 번역은 추론이 많이 필요한 일이 아니다 — 카탈로그에서 '빠른' 모델을 골라 low로 */
+	function applyFastPreset() {
+		const fast = models.find((m) => /fast|affordable/i.test(m.description));
+		void saveCodexSettings({
+			model: fast?.slug ?? settings?.model ?? null,
+			effort: (fast ?? models.find((m) => m.slug === settings?.model))?.efforts.includes('low')
+				? 'low'
+				: null
+		});
+	}
+
 	function pickModel(slug: string) {
 		const model = slug ? models.find((m) => m.slug === slug) : null;
 		// 모델을 바꾸면 그 모델이 지원하지 않는 강도는 버린다
@@ -253,6 +264,13 @@
 				</label>
 				{#if efforts.length === 0}
 					<small class="hint">모델을 먼저 고르면 강도를 선택할 수 있습니다</small>
+				{:else}
+					<small class="hint">번역은 추론이 많이 필요한 일이 아닙니다 — <code>low</code>가 가장 빠릅니다</small>
+				{/if}
+				{#if models.length}
+					<button class="preset" disabled={running} onclick={applyFastPreset}>
+						속도 우선으로 맞추기
+					</button>
 				{/if}
 
 				<label class="field">
@@ -265,10 +283,42 @@
 						disabled={running}
 						onchange={(e) =>
 							saveCodexSettings({
-								batchSize: Math.min(50, Math.max(1, Number(e.currentTarget.value) || 20))
+								batchSize: Math.min(50, Math.max(1, Number(e.currentTarget.value) || 40))
 							})}
 					/>
 				</label>
+
+				<label class="field">
+					<span>동시 실행</span>
+					<input
+						type="number"
+						min="1"
+						max="4"
+						value={settings.concurrency}
+						disabled={running}
+						onchange={(e) =>
+							saveCodexSettings({
+								concurrency: Math.min(4, Math.max(1, Number(e.currentTarget.value) || 3))
+							})}
+					/>
+				</label>
+				<small class="hint">
+					속도가 가장 크게 갈리는 값입니다. 올릴수록 빠르지만 할당량을 그만큼 빨리 쓰고, 한도(429)에
+					걸리면 자동으로 기다렸다 다시 시도합니다.
+				</small>
+
+				<label class="field">
+					<span>빠른 처리</span>
+					<input
+						type="checkbox"
+						checked={settings.fastTier}
+						disabled={running}
+						onchange={(e) => saveCodexSettings({ fastTier: e.currentTarget.checked })}
+					/>
+				</label>
+				<small class="hint">
+					<code>service_tier=fast</code> — 카탈로그 기준 1.5배 속도, 할당량을 더 씁니다.
+				</small>
 
 				<small class="hint">
 					문체·용어 규칙은 상단 <strong>번역 지침</strong> 패널에서 — Codex와 다른 MCP 클라이언트에 모두

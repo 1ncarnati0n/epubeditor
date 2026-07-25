@@ -38,7 +38,7 @@ export const GET: RequestHandler = async ({ params }) => {
 		}
 	});
 
-	const css = typographyCss(project.typography, (file) => `/fonts/${file}`, 'opentype');
+	const css = typographyCss(project.typography, (file) => `/fonts/${file}`, 'opentype', true);
 	const head = $('head');
 	if (head.length) head.append(`<style>${css}</style>`);
 	else $.root().append(`<style>${css}</style>`);
