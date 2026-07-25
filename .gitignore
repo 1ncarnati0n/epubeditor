@@ -1,0 +1,29 @@
+node_modules
+
+# App data (uploaded epubs + translation projects)
+/data
+.claude/settings.local.json
+# Downloaded fonts (node scripts/fetch-fonts.mjs)
+/static/fonts
+
+# Output
+.output
+.vercel
+.netlify
+.wrangler
+/.svelte-kit
+/build
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Env
+.env
+.env.*
+!.env.example
+!.env.test
+
+# Vite
+vite.config.js.timestamp-*
+vite.config.ts.timestamp-*

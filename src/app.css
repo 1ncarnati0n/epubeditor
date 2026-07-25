@@ -1,0 +1,76 @@
+/* 조판실 팔레트 — 종이/먹/치자(초벌)/쪽빛(검수) */
+:root {
+	--paper: #fafaf7;
+	--paper-dim: #f2f1ec;
+	--ink: #1c1b18;
+	--muted: #8a877e;
+	--line: #e4e1d8;
+	--draft: #a97a1f; /* 치자 — 초벌 번역 */
+	--sealed: #2f4b8f; /* 쪽빛 — 검수 완료 */
+	--fresh: #eef2fb;
+	--font-ui: 'Pretendard', -apple-system, 'Apple SD Gothic Neo', sans-serif;
+	--font-en: 'Iowan Old Style', 'Palatino Linotype', Palatino, Georgia, serif;
+	--font-ko: 'Noto Serif KR', 'Apple SD Gothic Neo', serif;
+}
+
+@font-face {
+	font-family: 'Pretendard';
+	src: url('/fonts/Pretendard-Regular.otf') format('opentype');
+	font-weight: 400;
+	font-display: swap;
+}
+@font-face {
+	font-family: 'Pretendard';
+	src: url('/fonts/Pretendard-Bold.otf') format('opentype');
+	font-weight: 700;
+	font-display: swap;
+}
+@font-face {
+	font-family: 'Noto Serif KR';
+	src: url('/fonts/NotoSerifKR-Regular.otf') format('opentype');
+	font-weight: 400;
+	font-display: swap;
+}
+@font-face {
+	font-family: 'Noto Serif KR';
+	src: url('/fonts/NotoSerifKR-Bold.otf') format('opentype');
+	font-weight: 700;
+	font-display: swap;
+}
+
+* {
+	box-sizing: border-box;
+}
+html,
+body {
+	margin: 0;
+	height: 100%;
+}
+body {
+	background: var(--paper);
+	color: var(--ink);
+	font-family: var(--font-ui);
+	font-size: 15px;
+	line-height: 1.6;
+	-webkit-font-smoothing: antialiased;
+}
+button {
+	font: inherit;
+	color: inherit;
+	background: none;
+	border: none;
+	padding: 0;
+	cursor: pointer;
+}
+:focus-visible {
+	outline: 2px solid var(--sealed);
+	outline-offset: 2px;
+}
+@media (prefers-reduced-motion: reduce) {
+	*,
+	*::before,
+	*::after {
+		animation: none !important;
+		transition: none !important;
+	}
+}
