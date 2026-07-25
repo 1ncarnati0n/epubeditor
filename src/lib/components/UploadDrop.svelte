@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { uploadEpub } from '$lib/client/state.svelte';
+	import { editor, uploadEpub } from '$lib/client/state.svelte';
 
 	let dragging = $state(false);
 	let busy = $state(false);
@@ -44,6 +44,7 @@
 			<p class="sub">영어 원서를 블록 단위로 나눠 한국어 번역을 준비합니다</p>
 		{/if}
 		{#if error}<p class="error">{error}</p>{/if}
+		{#if editor.loadError}<p class="error">{editor.loadError}</p>{/if}
 	</label>
 </div>
 

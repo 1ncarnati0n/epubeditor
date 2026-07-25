@@ -4,7 +4,7 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { Project } from '$lib/types';
 import { findOpfPath, resolveHref } from './parse';
-import { findBlockElements } from './blocks';
+import { injectTranslations } from './blocks';
 import { docXml, loadXml } from '$lib/server/xml';
 import { fontById, typographyCss } from '../fonts';
 
@@ -28,10 +28,7 @@ export async function exportEpub(
 		const bytes = entries[chapter.href];
 		if (!bytes) continue;
 		const $ = loadXml(strFromU8(bytes));
-		findBlockElements($).each((j, el) => {
-			const block = chapter.blocks[j];
-			if (block?.targetHtml && block.status !== 'untranslated') $(el).html(block.targetHtml);
-		});
+		injectTranslations($, chapter, project.typography.bilingual);
 		// 조판 스타일시트를 마지막 <link>로 주입 (기존 스타일 뒤에 와야 이김)
 		const relCss = path.posix.relative(path.posix.dirname(chapter.href), cssPath);
 		const head = $('head');

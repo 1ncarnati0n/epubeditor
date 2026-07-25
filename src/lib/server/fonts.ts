@@ -54,6 +54,18 @@ export function typographyCss(
 				)
 				.join('\n')
 		: '';
+	// 대역본: 번역문 아래에 붙는 원문 (blocks.ts의 SOURCE_CLASS와 짝)
+	const bilingual = t.bilingual
+		? `.epubeditor-src{
+	display:block;
+	margin-top:0.3em;
+	font-size:0.85em;
+	opacity:0.6;
+	line-height:1.45;
+	text-indent:0 !important;
+}
+`
+		: '';
 	return `${faces}
 html{font-size:${t.fontSizePercent}%;}
 body{
@@ -68,5 +80,5 @@ p{
 	margin-bottom:${t.paraSpacingEm}em !important;
 	text-indent:${t.textIndentEm}em !important;
 }
-`;
+${bilingual}`;
 }

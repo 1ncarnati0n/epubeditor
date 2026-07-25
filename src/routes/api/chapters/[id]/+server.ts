@@ -1,14 +1,14 @@
 import { error, json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { findBlock, getChapter, setBlock } from '$lib/server/store';
-import { sanitizeInlineHtml } from '$lib/server/sanitize';
+import { forEditor, sanitizeInlineHtml } from '$lib/server/sanitize';
 import { broadcast } from '$lib/server/events';
 import type { BlockStatus } from '$lib/types';
 
 export const GET: RequestHandler = async ({ params }) => {
 	const chapter = await getChapter(params.id);
 	if (!chapter) error(404, `unknown chapter: ${params.id}`);
-	return json(chapter);
+	return json({ ...chapter, blocks: chapter.blocks.map(forEditor) });
 };
 
 // human edit from the UI: update a block's translation and/or status
@@ -34,6 +34,6 @@ export const PATCH: RequestHandler = async ({ params, request }) => {
 		error(400, 'targetHtml or status required');
 	}
 
-	broadcast({ type: 'blocks', chapterId: params.id, blocks: [block] });
-	return json(block);
+	broadcast({ type: 'blocks', chapterId: params.id, blocks: [forEditor(block)] });
+	return json(forEditor(block));
 };

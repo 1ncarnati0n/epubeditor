@@ -4,7 +4,7 @@ import { strFromU8 } from 'fflate';
 import type { RequestHandler } from './$types';
 import { getChapter, getEntries, getProject } from '$lib/server/store';
 import { resolveHref } from '$lib/server/epub/parse';
-import { findBlockElements } from '$lib/server/epub/blocks';
+import { injectTranslations } from '$lib/server/epub/blocks';
 import { docXml, loadXml } from '$lib/server/xml';
 import { typographyCss } from '$lib/server/fonts';
 
@@ -18,11 +18,7 @@ export const GET: RequestHandler = async ({ params }) => {
 
 	const $ = loadXml(strFromU8(bytes));
 
-	// 번역된 블록 교체 — findBlockElements 열거 순서 = 파싱 시 블록 인덱스
-	findBlockElements($).each((j, el) => {
-		const block = chapter.blocks[j];
-		if (block?.targetHtml && block.status !== 'untranslated') $(el).html(block.targetHtml);
-	});
+	injectTranslations($, chapter, project.typography.bilingual);
 
 	// 이미지·스타일시트 경로를 /res/ 로 재작성 (절대 URL·앵커·data:는 그대로)
 	const docDir = path.posix.dirname(chapter.href);

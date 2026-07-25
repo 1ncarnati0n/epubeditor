@@ -2,7 +2,7 @@ import { unzipSync, strFromU8 } from 'fflate';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 import type { Block, Chapter, Project } from '$lib/types';
-import { defaultTypography } from '$lib/types';
+import { defaultCodexSettings, defaultTypography } from '$lib/types';
 import { findBlockElements } from './blocks';
 import { innerXml, loadXml } from '$lib/server/xml';
 
@@ -10,6 +10,18 @@ export interface ParsedEpub {
 	project: Project;
 	entries: Record<string, Uint8Array>;
 	opfPath: string;
+}
+
+/**
+ * 번역이 어느 원문의 것인지 기록하는 지문. 우발적 변경 감지가 목적이라 8자(32bit)면 충분하다
+ * (위조 방지용이 아니다 — 로컬 단일 사용자 도구).
+ */
+export function sourceHash(sourceHtml: string): string {
+	return createHash('sha256').update(sourceHtml).digest('hex').slice(0, 8);
+}
+
+export function epubSha256(data: Uint8Array): string {
+	return createHash('sha256').update(data).digest('hex');
 }
 
 function readText(entries: Record<string, Uint8Array>, name: string): string {
@@ -62,7 +74,9 @@ export function parseEpub(data: Uint8Array): ParsedEpub {
 				sourceHtml: innerXml($doc(blockEl)),
 				targetHtml: null,
 				status: 'untranslated',
-				updatedAt: 0
+				updatedAt: 0,
+				srcHash: null,
+				stale: false
 			});
 		});
 		chapters.push({
@@ -74,7 +88,7 @@ export function parseEpub(data: Uint8Array): ParsedEpub {
 	});
 	if (chapters.length === 0) throw new Error('no spine documents found');
 
-	const bookId = createHash('sha256').update(data).digest('hex').slice(0, 12);
+	const bookId = epubSha256(data).slice(0, 12);
 	return {
 		project: {
 			version: 1,
@@ -82,7 +96,9 @@ export function parseEpub(data: Uint8Array): ParsedEpub {
 			title,
 			language,
 			creator,
+			translationGuide: '',
 			typography: defaultTypography(),
+			codex: defaultCodexSettings(),
 			chapters
 		},
 		entries,

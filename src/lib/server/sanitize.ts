@@ -35,6 +35,15 @@ function escapeText(text: string): string {
  * Keep allowed inline tags/attrs, unwrap unknown tags (text survives),
  * drop script/style entirely. Returns XHTML-safe markup.
  */
+/**
+ * 편집기로 내보낼 블록. 원문은 남의 EPUB에서 온 신뢰할 수 없는 HTML이고 왼쪽 칸은
+ * `{@html}`로 앱 오리진에 렌더되므로, **표시용으로만** 새니타이즈한다.
+ * 저장·내보내기·MCP는 원문 그대로 쓴다 (충실도가 중요한 곳).
+ */
+export function forEditor<T extends { sourceHtml: string }>(block: T): T {
+	return { ...block, sourceHtml: sanitizeInlineHtml(block.sourceHtml) };
+}
+
 export function sanitizeInlineHtml(html: string): string {
 	let $: cheerio.CheerioAPI;
 	try {

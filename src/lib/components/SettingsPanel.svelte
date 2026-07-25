@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { editor, saveTypography } from '$lib/client/state.svelte';
+	import { editor, saveTypography, setDensity, type Density } from '$lib/client/state.svelte';
 
 	const t = $derived(editor.project?.typography);
 
@@ -9,8 +9,39 @@
 </script>
 
 {#if t}
-	<aside class="panel">
+	<aside class="panel" aria-label="조판">
 		<div class="head">조판</div>
+
+		<div class="field">
+			<span>출력 형식</span>
+			<div class="choices" role="group" aria-label="출력 형식">
+				<button
+					class:on={!t.bilingual}
+					aria-pressed={!t.bilingual}
+					onclick={() => saveTypography({ bilingual: false })}>번역만</button
+				>
+				<button
+					class:on={t.bilingual}
+					aria-pressed={t.bilingual}
+					onclick={() => saveTypography({ bilingual: true })}>원문 병기</button
+				>
+			</div>
+			<small>{t.bilingual ? '번역문 아래에 원문을 작게 병기합니다' : '원문을 번역문으로 대체합니다'}</small>
+		</div>
+
+		<div class="field">
+			<span>편집 화면 밀도</span>
+			<div class="choices three" role="group" aria-label="편집 화면 밀도">
+				{#each [['tight', '좁게'], ['normal', '보통'], ['loose', '넓게']] as [key, label] (key)}
+					<button
+						class:on={editor.density === key}
+						aria-pressed={editor.density === key}
+						onclick={() => setDensity(key as Density)}>{label}</button
+					>
+				{/each}
+			</div>
+			<small>이 브라우저에만 저장됩니다 (내보내기와 무관)</small>
+		</div>
 
 		<label class="field">
 			<span>본문 폰트</span>
@@ -130,6 +161,34 @@
 		padding: 0.3rem;
 		border: 1px solid var(--line);
 		background: var(--paper);
+	}
+	.choices {
+		display: grid;
+		grid-template-columns: 1fr 1fr;
+		border: 1px solid var(--line);
+		background: var(--paper);
+	}
+	.choices.three {
+		grid-template-columns: repeat(3, 1fr);
+	}
+	.choices button {
+		padding: 0.35rem;
+		color: var(--muted);
+		font-size: 0.76rem;
+	}
+	.choices button + button {
+		border-left: 1px solid var(--line);
+	}
+	.choices button.on {
+		background: var(--sealed);
+		color: white;
+	}
+	.field small {
+		display: block;
+		margin-top: 0.35rem;
+		color: var(--muted);
+		font-size: 0.68rem;
+		line-height: 1.5;
 	}
 	.note {
 		font-size: 0.72rem;

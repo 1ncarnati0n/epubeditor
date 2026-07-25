@@ -8,6 +8,9 @@
 	--draft: #a97a1f; /* 치자 — 초벌 번역 */
 	--sealed: #2f4b8f; /* 쪽빛 — 검수 완료 */
 	--fresh: #eef2fb;
+	/* 편집 화면 행 여백 — 조판 패널의 '밀도'가 바꾼다 (localStorage) */
+	--row-pad-y: 0.8rem;
+	--row-pad-x: 1.1rem;
 	--font-ui: 'Pretendard', -apple-system, 'Apple SD Gothic Neo', sans-serif;
 	--font-en: 'Iowan Old Style', 'Palatino Linotype', Palatino, Georgia, serif;
 	--font-ko: 'Noto Serif KR', 'Apple SD Gothic Neo', serif;
@@ -66,6 +69,13 @@ button {
 	outline: 2px solid var(--sealed);
 	outline-offset: 2px;
 }
+:root[data-density='tight'] {
+	--row-pad-y: 0.45rem;
+}
+:root[data-density='loose'] {
+	--row-pad-y: 1.3rem;
+}
+
 @media (prefers-reduced-motion: reduce) {
 	*,
 	*::before,

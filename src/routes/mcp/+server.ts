@@ -4,7 +4,7 @@ import { createMcpServer } from '$lib/server/mcp';
 
 // stateless: 세션 관리 없음 — 요청마다 서버+트랜스포트 생성, JSON 응답
 async function handle(request: Request): Promise<Response> {
-	const server = createMcpServer();
+	const server = await createMcpServer();
 	const transport = new WebStandardStreamableHTTPServerTransport({
 		sessionIdGenerator: undefined,
 		enableJsonResponse: true

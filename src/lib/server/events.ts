@@ -1,8 +1,10 @@
-import type { Block } from '$lib/types';
+import type { Block, CodexJobStatus } from '$lib/types';
 
 export type ServerEvent =
 	| { type: 'blocks'; chapterId: string; blocks: Block[] } // translations arrived/changed
-	| { type: 'project' }; // reload everything (new upload, settings change)
+	| { type: 'project' } // reload everything (new upload, settings change)
+	| { type: 'codex'; status: CodexJobStatus }
+	| { type: 'saved'; at: number }; // project.json hit disk
 
 type Send = (chunk: string) => void;
 const subscribers = new Set<Send>();

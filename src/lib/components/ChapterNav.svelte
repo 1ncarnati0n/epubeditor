@@ -11,9 +11,21 @@
 	<div class="head">차례</div>
 	{#each editor.project?.chapters ?? [] as c (c.id)}
 		{#if c.total > 0}
-			<button class="ch" class:active={editor.chapterId === c.id} onclick={() => openChapter(c.id)}>
+			<button
+				class="ch"
+				class:active={editor.chapterId === c.id}
+				aria-current={editor.chapterId === c.id ? 'true' : undefined}
+				onclick={() => {
+					openChapter(c.id);
+					editor.navOpen = false;
+				}}
+			>
 				<span class="name">{label(c)}</span>
-				<span class="meta">{c.reviewed + c.machine}/{c.total}</span>
+				<span class="meta">
+					{c.reviewed + c.machine}/{c.total}
+					{#if c.machine}<em title="검수 대기 초벌">· 검수 {c.machine}</em>{/if}
+					{#if c.stale}<b title="원문이 바뀐 번역">· 확인 {c.stale}</b>{/if}
+				</span>
 				<span class="bar" aria-hidden="true">
 					<i class="rev" style:width="{(c.reviewed / c.total) * 100}%"></i>
 					<i class="mac" style:width="{(c.machine / c.total) * 100}%"></i>
@@ -60,6 +72,14 @@
 	.meta {
 		font-size: 0.7rem;
 		color: var(--muted);
+	}
+	.meta em {
+		font-style: normal;
+		color: var(--draft);
+	}
+	.meta b {
+		font-weight: 400;
+		color: #9d3f32;
 	}
 	.bar {
 		display: flex;
