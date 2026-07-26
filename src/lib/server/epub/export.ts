@@ -54,6 +54,30 @@ export async function exportEpub(
 	const lang = $opf('dc\\:language').first();
 	if (lang.length) lang.text('ko');
 
+	/*
+	 * 서지정보를 사람이 고친 값으로 덮는다. 원본 제목에 워터마크성 꼬리표가 박혀 있는 책이
+	 * 흔한데(zero-width 문자까지), 지금까지는 그게 그대로 나갔다.
+	 * .text()가 &·<를 이스케이프하므로 제목에 기호가 있어도 안전하다.
+	 */
+	const metadata = $opf('metadata').first();
+	const setDc = (tag: string, value: string | null) => {
+		const el = $opf(`dc\\:${tag}`).first();
+		if (value === null) {
+			el.remove(); // 빈 <dc:creator/>를 남기지 않는다 — epubcheck가 걸고 뜻에도 안 맞는다
+			return;
+		}
+		if (el.length) {
+			el.text(value);
+			// calibre가 남긴 정렬키. 새 이름과 안 맞으면 리더가 옛 저자명으로 정렬한다
+			el.removeAttr('opf:file-as');
+		} else {
+			metadata.append(`<dc:${tag}/>`);
+			$opf(`dc\\:${tag}`).last().text(value);
+		}
+	};
+	setDc('title', project.title);
+	setDc('creator', project.creator);
+
 	// 폰트 서브셋 (한국어 단행본 기준 수백 KB)
 	if (font) {
 		const chars = [...new Set(allText + project.title + printableAscii())].join('');

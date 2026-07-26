@@ -36,6 +36,7 @@ export const editor = $state({
 	codexOpen: false,
 	saveOpen: false,
 	guideOpen: false,
+	infoOpen: false,
 	searchOpen: false,
 	codex: null as CodexStatus | null,
 	loadError: null as string | null,
@@ -243,6 +244,24 @@ export async function saveCodexSettings(patch: Partial<CodexSettings>): Promise<
 		headers: { 'Content-Type': 'application/json' },
 		body: JSON.stringify({ codex: patch })
 	});
+}
+
+/** 책 제목·저자. 헤더·책장·내려받는 파일명·내보낸 EPUB의 OPF가 전부 이 값을 쓴다 */
+export async function saveBookMeta(patch: { title?: string; creator?: string | null }): Promise<void> {
+	if (!editor.project) return;
+	Object.assign(editor.project, patch);
+	editor.save.dirty = true;
+	const res = await fetch('/api/settings', {
+		method: 'PATCH',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify({ meta: patch })
+	});
+	if (!res.ok || !editor.project) return;
+	// 서버가 trim·빈값 폴백을 하므로 그 결과로 되맞춘다
+	const { title, creator } = await res.json();
+	editor.project.title = title;
+	editor.project.creator = creator;
+	void refreshBooks(); // 책장 목록의 제목도 같이
 }
 
 export async function saveTranslationGuide(translationGuide: string): Promise<void> {

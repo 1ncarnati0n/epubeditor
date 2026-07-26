@@ -33,6 +33,14 @@ export const codexSchema = z
 	})
 	.partial();
 
+/** EPUB 서지정보. 제목은 dc:title 필수라 빈 값을 막고, 저자는 비우면 null(= 항목 삭제) */
+export const bookMetaSchema = z
+	.object({
+		title: z.string().min(1).max(300),
+		creator: z.string().max(200).nullable()
+	})
+	.partial();
+
 /** 번역 지침 — 프롬프트에 통째로 실리므로 길이만 제한한다 */
 export const translationGuideSchema = z.string().max(4000);
 

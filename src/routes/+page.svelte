@@ -23,6 +23,7 @@
 	import CodexPanel from '$lib/components/CodexPanel.svelte';
 	import SavePanel from '$lib/components/SavePanel.svelte';
 	import GuidePanel from '$lib/components/GuidePanel.svelte';
+	import BookInfoPanel from '$lib/components/BookInfoPanel.svelte';
 	import SearchBar from '$lib/components/SearchBar.svelte';
 	import ShortcutHelp from '$lib/components/ShortcutHelp.svelte';
 	import BookShelf from '$lib/components/BookShelf.svelte';
@@ -87,11 +88,12 @@
 	});
 
 	/** 하나만 열린다 — 전부 오른쪽 같은 자리를 쓴다 */
-	function openPanel(which: 'settings' | 'codex' | 'save' | 'guide' | null) {
+	function openPanel(which: 'settings' | 'codex' | 'save' | 'guide' | 'info' | null) {
 		editor.settingsOpen = which === 'settings';
 		editor.codexOpen = which === 'codex';
 		editor.saveOpen = which === 'save';
 		editor.guideOpen = which === 'guide';
+		editor.infoOpen = which === 'info';
 		if (which === 'codex') void refreshCodex();
 		if (which === 'save') void refreshSnapshots();
 	}
@@ -293,6 +295,12 @@
 				</button>
 				<button
 					class="tool"
+					class:on={editor.infoOpen}
+					title="책 정보 — 제목·저자 (내보낸 EPUB에도 반영됩니다)"
+					onclick={() => openPanel(editor.infoOpen ? null : 'info')}>정보</button
+				>
+				<button
+					class="tool"
 					class:on={editor.settingsOpen}
 					title="조판 — 폰트·행간·출력 형식"
 					onclick={() => openPanel(editor.settingsOpen ? null : 'settings')}>조판</button
@@ -349,7 +357,8 @@
 			class:with-panel={editor.settingsOpen ||
 				editor.codexOpen ||
 				editor.saveOpen ||
-				editor.guideOpen}
+				editor.guideOpen ||
+				editor.infoOpen}
 		>
 			<ChapterNav />
 			<main class:editing={editor.view === 'edit'}>
@@ -405,6 +414,8 @@
 				<SavePanel />
 			{:else if editor.guideOpen}
 				<GuidePanel />
+			{:else if editor.infoOpen}
+				<BookInfoPanel />
 			{/if}
 		</div>
 		{#if helpOpen}

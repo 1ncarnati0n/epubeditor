@@ -838,6 +838,60 @@ try {
 
 	assert.ok((await readFile(stateFile, 'utf8')).includes(`${base}/mcp`));
 
+	// --- 7b. 책 정보(제목·저자)가 화면·디스크·내보낸 OPF까지 따라오는가 ---
+	// 픽스처 OPF에는 dc:title만 있고 dc:creator는 없다 — 교체 경로와 추가 경로를 한 번에 태운다
+	const NEW_TITLE = '한글 제목 & 기호';
+	await assertStatus(
+		await fetch(
+			`${base}/api/settings`,
+			Object.assign(json({ meta: { title: `  ${NEW_TITLE}  `, creator: '옮긴이' } }), {
+				method: 'PATCH'
+			})
+		),
+		200
+	);
+	let meta = await (await fetch(`${base}/api/project`)).json();
+	assert.equal(meta.title, NEW_TITLE, '앞뒤 공백은 잘라서 저장한다');
+	assert.equal(meta.creator, '옮긴이');
+
+	await assertStatus(await fetch(`${base}/api/save`, { method: 'POST' }), 200);
+	const metaOnDisk = JSON.parse(
+		await readFile(path.join(temp, 'data', project.bookId, 'project.json'), 'utf8')
+	);
+	assert.equal(metaOnDisk.title, NEW_TITLE, '고친 제목이 디스크에 남는다');
+	assert.equal(metaOnDisk.creator, '옮긴이');
+
+	const renamed = await exportedFiles();
+	let opf = strFromU8(renamed.entries['OEBPS/content.opf']);
+	assert.match(opf, /<dc:title>한글 제목 &amp; 기호<\/dc:title>/, 'dc:title이 바뀌고 &가 이스케이프된다');
+	assert.match(opf, /<dc:creator>옮긴이<\/dc:creator>/, '없던 dc:creator가 추가된다');
+	assert.ok(
+		decodeURIComponent(renamed.disposition).includes(NEW_TITLE),
+		'내려받는 파일 이름도 새 제목을 쓴다'
+	);
+
+	// 저자를 비우면 빈 <dc:creator/>를 남기지 않고 항목째 지운다 (epubcheck가 빈 값을 건다)
+	await assertStatus(
+		await fetch(
+			`${base}/api/settings`,
+			Object.assign(json({ meta: { creator: '   ' } }), { method: 'PATCH' })
+		),
+		200
+	);
+	opf = strFromU8((await exportedFiles()).entries['OEBPS/content.opf']);
+	assert.ok(!opf.includes('<dc:creator'), '저자를 비우면 dc:creator를 남기지 않는다');
+
+	// 같은 EPUB을 다시 열어도 살아나는가 — join()이 저장된 값을 되얹지 않으면 여기서 깨진다
+	response = await fetch(`${base}/api/upload`, {
+		method: 'POST',
+		headers: { Origin: base },
+		body: form
+	});
+	await assertStatus(response, 200);
+	meta = await response.json();
+	assert.equal(meta.title, NEW_TITLE, '다시 열어도 고친 제목이 남는다');
+	assert.equal(meta.creator, null, '비운 저자도 그대로 남는다');
+
 	// --- 8. 서버를 끄면 마지막 편집이 디스크에 남는가 (debounce 타이머 + 종료 훅 합작) ---
 	const doomed = (await chapterBlocks(ch1))[2].id;
 	await assertStatus(
@@ -986,7 +1040,7 @@ try {
 	);
 
 	console.log(
-		'CODEX SMOKE PASS — 실행 설정, 지침, 블록 번역, 큐, 검색·치환, 작업파일, 스냅샷, 대역본, 여러 권(목록·전환·세션·삭제), 고른 chapter만 번역, 종료 저장, 원문 분리, 드리프트 감지·해소, 원본 교체 거부, v1 마이그레이션, 작업 보호'
+		'CODEX SMOKE PASS — 실행 설정, 지침, 블록 번역, 큐, 검색·치환, 작업파일, 스냅샷, 대역본, 여러 권(목록·전환·세션·삭제), 고른 chapter만 번역, 책 정보, 종료 저장, 원문 분리, 드리프트 감지·해소, 원본 교체 거부, v1 마이그레이션, 작업 보호'
 	);
 	if (serverError.trim()) console.log('server stderr:', serverError.trim().slice(0, 500));
 } finally {

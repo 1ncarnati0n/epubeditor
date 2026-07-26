@@ -67,6 +67,11 @@ function toStoredV2(raw: Record<string, unknown>, epubHash: string): StoredProje
 
 /** 원본에서 파싱한 블록(정답)에 저장된 번역을 얹는다 */
 function join(fresh: Project, stored: StoredProject): Project {
+	// 사람이 고친 서지정보는 원본 OPF를 이긴다. 빈 제목은 파일명·OPF를 깨뜨리므로 폴백을 둔다.
+	// creator는 ??가 아니라 그냥 대입 — "일부러 비웠다"와 "저장 안 됐다"를 구분해야 하는데,
+	// toStoredV2가 없는 키를 null로 정규화하므로 실제 파일에는 늘 키가 있다.
+	fresh.title = stored.title || fresh.title;
+	fresh.creator = stored.creator;
 	fresh.translationGuide = stored.translationGuide;
 	fresh.typography = stored.typography;
 	fresh.codex = stored.codex;
@@ -364,6 +369,9 @@ export function setSession(patch: Partial<WorkSession>): void {
 }
 
 export async function openEpub(buf: Uint8Array): Promise<Project> {
+	// 지금 책의 debounce 대기분을 먼저 확정한다 (openBook과 같은 이유).
+	// 없으면 방금 고친 설정·서지정보가 디스크에 닿기 전에 adopt가 옛 파일을 되읽어 덮어쓴다.
+	await persistNow();
 	const bookId = epubSha256(buf).slice(0, 12);
 	let prior: Record<string, unknown> | null = null;
 	try {
