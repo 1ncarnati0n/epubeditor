@@ -2,6 +2,8 @@
 	import {
 		connectCodex,
 		editor,
+		listedChapters,
+		pickedChapters,
 		saveCodexSettings,
 		startCodexTranslation,
 		stopCodexTranslation
@@ -24,9 +26,10 @@
 		editor.project?.chapters.find((chapter) => chapter.id === editor.chapterId)
 	);
 	const chapterPending = $derived(currentChapter?.untranslated ?? 0);
-	const bookPending = $derived(
-		editor.project?.chapters.reduce((sum, chapter) => sum + chapter.untranslated, 0) ?? 0
-	);
+	// 차례 체크박스로 고른 것만 — 전부 체크면 chapterIds를 안 보내고 기존 '책 전체' 경로를 탄다
+	const picked = $derived(pickedChapters());
+	const allPicked = $derived(picked.length === listedChapters().length);
+	const bookPending = $derived(picked.reduce((sum, chapter) => sum + chapter.untranslated, 0));
 	const selectedPending = $derived(scope === 'chapter' ? chapterPending : bookPending);
 	const batches = $derived(Math.ceil(selectedPending / (settings?.batchSize || 20)));
 
@@ -187,29 +190,53 @@
 					value={scope}
 					items={[
 						{ key: 'chapter', label: '현재 chapter' },
-						{ key: 'book', label: '책 전체' }
+						{ key: 'book', label: allPicked ? '책 전체' : `선택 ${picked.length}개` }
 					]}
 					pick={(key) => (scope = key as CodexTranslationScope)}
 				/>
 				<div class="selection">
 					{#if scope === 'chapter'}
 						<strong>{currentChapter?.title ?? editor.chapterId ?? 'chapter 미선택'}</strong>
+					{:else if picked.length === 0}
+						<strong>선택한 chapter 없음</strong>
 					{:else}
 						<strong>{editor.project?.title}</strong>
 					{/if}
 					<span>미번역 {selectedPending} blocks</span>
-					<small>{selectedPending ? `약 ${batches}회 Codex batch` : '번역할 block 없음'}</small>
+					<small>
+						{#if scope === 'book' && picked.length === 0}
+							차례에서 번역할 chapter를 체크하세요
+						{:else}
+							{selectedPending ? `약 ${batches}회 Codex batch` : '번역할 block 없음'}
+						{/if}
+					</small>
 				</div>
 				<button
 					class="primary start"
 					disabled={busy || selectedPending === 0 || (scope === 'chapter' && !editor.chapterId)}
-					onclick={() => act(() => startCodexTranslation(scope))}
+					onclick={() =>
+						act(() =>
+							startCodexTranslation(
+								scope,
+								undefined,
+								allPicked ? undefined : picked.map((c) => c.id)
+							)
+						)}
 				>
-					{busy ? '시작 중…' : scope === 'chapter' ? '현재 chapter 번역' : '책 전체 번역'}
+					{busy
+						? '시작 중…'
+						: scope === 'chapter'
+							? '현재 chapter 번역'
+							: allPicked
+								? '책 전체 번역'
+								: picked.length === 0
+									? '번역할 chapter를 고르세요'
+									: `선택한 ${picked.length}개 chapter 번역`}
 				</button>
 				<p class="note">
 					{settings?.batchSize ?? 20} blocks씩 번역. 검수 완료 block은 변경하지 않습니다. 시작 전 스냅샷을
-					남깁니다.
+					남깁니다. 차례의 체크박스는 이 버튼에만 적용됩니다 — <strong>현재 chapter 번역</strong>과 블록
+					버튼은 체크와 무관합니다.
 				</p>
 			</section>
 		{/if}

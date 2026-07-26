@@ -39,6 +39,7 @@ export const sessionSchema = z
 	.object({
 		chapterId: z.string().max(40).nullable(),
 		cursor: z.string().max(60).nullable(),
-		filter: z.enum(['all', 'untranslated', 'machine', 'stale'])
+		filter: z.enum(['all', 'untranslated', 'machine', 'stale']),
+		excluded: z.array(z.string().max(40)).max(2000)
 	})
 	.partial();

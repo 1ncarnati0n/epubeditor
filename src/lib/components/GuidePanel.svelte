@@ -1,19 +1,12 @@
 <script lang="ts">
 	import { editor, saveTranslationGuide } from '$lib/client/state.svelte';
+	import { defaultTranslationGuide } from '$lib/types';
 
 	const MAX = 4000;
 	const saved = $derived(editor.project?.translationGuide ?? '');
 
-	/**
-	 * 예시가 아니라 **그대로 써도 되는 초안**. 특정 책에 매이지 않게 썼으니
-	 * 넣고 필요한 줄만 고치면 된다.
-	 */
-	const EXAMPLE = `- 문체는 평어체(-다)로 통일한다.
-- 대화는 구어체로, 서술은 담백하게.
-- 원문의 쉼표·세미콜론을 그대로 옮기지 말고 한국어 호흡에 맞춰 끊는다.
-- 널리 쓰이는 한국어 용어가 있으면 그것을 쓰고, 없으면 원어를 그대로 둔다.
-- 고유명사는 처음 나올 때만 원어를 괄호로 병기한다. 예: 서츠케버(Sutskever)
-- 원문에 없는 말을 보태지 않는다. 직역이 어색하면 뜻을 살려 자연스럽게.`;
+	// 새 책이 이미 들고 시작하는 기본 지침 — 지우고 나서 되돌리고 싶을 때 쓴다
+	const EXAMPLE = defaultTranslationGuide();
 
 	let draft = $state('');
 	let loaded = $state<string | null>(null);
@@ -44,7 +37,8 @@
 	<div class="head">번역 지침</div>
 
 	<p class="lead">
-		이 책을 번역할 때 지킬 규칙. 문체·호칭·고유명사 표기·피할 표현 같은 것을 적습니다.
+		이 책을 번역할 때 지킬 규칙. 문체·호칭·고유명사 표기·피할 표현 같은 것을 적습니다. 새 책은 아래
+		기본 지침을 들고 시작하니, 고칠 것만 고치면 됩니다.
 	</p>
 
 	<textarea

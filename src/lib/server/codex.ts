@@ -709,7 +709,9 @@ async function enqueueBlock(expectedUrl: string, blockId: string): Promise<Codex
 export async function startTranslation(
 	expectedUrl: string,
 	scope: CodexTranslationScope,
-	target?: string
+	target?: string,
+	/** book scope: 차례에서 체크한 chapter들. 전부 체크면 클라이언트가 아예 안 보낸다 */
+	only?: string[]
 ): Promise<CodexJobStatus> {
 	// block은 큐로 받으므로 잠그지 않는다 — 잠그면 연타가 409로 떨어져 큐가 무의미해진다
 	if (scope === 'block') {
@@ -729,8 +731,13 @@ export async function startTranslation(
 		const chapters =
 			scope === 'chapter'
 				? project.chapters.filter((chapter) => chapter.id === target)
-				: project.chapters;
+				: only?.length
+					? project.chapters.filter((chapter) => only.includes(chapter.id))
+					: project.chapters;
 		if (scope === 'chapter' && chapters.length === 0) {
+			throw new CodexRunnerError('선택한 chapter를 찾지 못했습니다', 400);
+		}
+		if (only?.length && chapters.length === 0) {
 			throw new CodexRunnerError('선택한 chapter를 찾지 못했습니다', 400);
 		}
 		const pending = chapters.filter((chapter) => untranslatedCount(chapter) > 0);
@@ -738,7 +745,11 @@ export async function startTranslation(
 
 		// 되돌릴 지점을 남긴다 — 한 번에 많이 바뀌는 건 이 경로뿐
 		await snapshotProject(
-			scope === 'book' ? '책 전체 번역 전' : `${pending[0].title ?? pending[0].id} 번역 전`
+			scope !== 'book'
+				? `${pending[0].title ?? pending[0].id} 번역 전`
+				: only?.length
+					? `선택한 ${chapters.length}개 chapter 번역 전`
+					: '책 전체 번역 전'
 		).catch(console.error);
 
 		cancelRequested = false;

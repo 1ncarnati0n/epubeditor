@@ -1,13 +1,18 @@
 // 엔드투엔드 스모크 테스트: 업로드 → MCP 번역 제출 → 내보내기 검증
-// 사용법: 서버 실행 상태에서  node scripts/smoke.mjs path/to/sample.epub
+// 사용법:  BASE=http://127.0.0.1:5199 node scripts/smoke.mjs path/to/sample.epub
+//
+// 이 스크립트는 **읽기만 하지 않는다** — 책을 업로드해 활성 책을 바꾸고, 첫 블록의 번역을
+// overwriteReviewed로 덮어쓴다. 그래서 BASE에 기본값을 두지 않는다. 실제 작업 중인 서버에
+// 실수로 붙는 사고가 한 번 있었고, 그 사고를 막는 건 이 한 줄뿐이다.
 import { readFile } from 'node:fs/promises';
 import assert from 'node:assert';
 import { unzipSync, strFromU8 } from 'fflate';
 
-const BASE = process.env.BASE ?? 'http://localhost:5173';
+const BASE = process.env.BASE;
 const epubPath = process.argv[2];
-if (!epubPath) {
-	console.error('usage: node scripts/smoke.mjs <sample.epub>');
+if (!BASE || !epubPath) {
+	console.error('usage: BASE=http://127.0.0.1:<port> node scripts/smoke.mjs <sample.epub>');
+	console.error('       (작업 중인 서버에 붙이지 말 것 — 활성 책과 번역을 덮어씁니다)');
 	process.exit(1);
 }
 

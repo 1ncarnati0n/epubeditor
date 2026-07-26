@@ -308,7 +308,11 @@ try {
 		concurrency: 3,
 		fastTier: true
 	});
-	assert.equal(project.translationGuide, '');
+	// 새 책은 기본 지침을 들고 시작한다 (책마다 넣고 저장하는 수고를 없앴다)
+	assert.ok(
+		project.translationGuide.startsWith('- 문체는 평어체'),
+		'새 책은 기본 번역 지침을 들고 시작해야 한다'
+	);
 
 	// --- 1. 실행 설정과 번역 지침이 실제 codex 호출에 반영되는가 ---
 	response = await fetch(
@@ -551,9 +555,12 @@ try {
 	await assertStatus(
 		await fetch(
 			`${base}/api/settings`,
-			Object.assign(json({ session: { chapterId: ch3, cursor: `${ch3}:b1`, filter: 'machine' } }), {
-				method: 'PATCH'
-			})
+			Object.assign(
+				json({
+					session: { chapterId: ch3, cursor: `${ch3}:b1`, filter: 'machine', excluded: [ch2] }
+				}),
+				{ method: 'PATCH' }
+			)
 		),
 		200
 	);
@@ -561,8 +568,8 @@ try {
 	const restored = await (await fetch(`${base}/api/books/${project.bookId}`, json({}))).json();
 	assert.deepEqual(
 		restored.session,
-		{ chapterId: ch3, cursor: `${ch3}:b1`, filter: 'machine' },
-		'덮던 자리가 책마다 따로 남는다'
+		{ chapterId: ch3, cursor: `${ch3}:b1`, filter: 'machine', excluded: [ch2] },
+		'덮던 자리와 차례 체크가 책마다 따로 남는다'
 	);
 
 	// --- 6c. 일시 장애를 견디는가 (503 → 재시도 → 성공) ---
@@ -679,8 +686,60 @@ try {
 		'끄면 넘기지 않아야 한다'
 	);
 
+	// --- 6f. 차례에서 고른 chapter만 번역한다 ---
+	// 세 번째 책은 전부 미번역이라 "안 고른 것이 번역됐는지"를 깨끗하게 볼 수 있다
+	const thirdForm = new FormData();
+	thirdForm.set('file', new Blob([epub('Third Book')], { type: 'application/epub+zip' }), 'c.epub');
+	response = await fetch(`${base}/api/upload`, {
+		method: 'POST',
+		headers: { Origin: base },
+		body: thirdForm
+	});
+	await assertStatus(response, 200);
+	const third = await response.json();
+	// 세 번째 chapter는 mock의 '무진행' 시나리오 전용이라 일부러 건드리지 않는다
+	const [t0, t1] = third.chapters.map((c) => c.id);
+
+	await assertStatus(
+		await fetch(`${base}/api/codex`, json({ action: 'start', scope: 'book', chapterIds: [t0] })),
+		202
+	);
+	const partial = await waitFor(
+		`${base}/api/codex`,
+		(s) => s.job.state === 'completed' || s.job.state === 'failed',
+		90_000
+	);
+	assert.equal(partial.job.state, 'completed');
+	assert.ok(
+		(await chapterBlocks(t0)).every((b) => b.targetHtml),
+		`고른 chapter(${t0})는 전부 번역돼야 한다`
+	);
+	// 핵심: codex.ts의 필터를 지우면 여기서 깨진다 (이 단언이 기능 그 자체다 — 앞에 두지 말 것)
+	assert.ok(
+		(await chapterBlocks(t1)).every((b) => !b.targetHtml),
+		`안 고른 chapter(${t1})는 한 블록도 번역되면 안 된다`
+	);
+
+	// 없는 id만 보내면 시작조차 하지 않는다 (조용히 책 전체로 번지면 안 된다)
+	await assertStatus(
+		await fetch(`${base}/api/codex`, json({ action: 'start', scope: 'book', chapterIds: ['nope'] })),
+		400
+	);
+
+	// 남은 chapter를 chapterIds 없이 돌리면 기존 '책 전체' 경로 그대로
+	await assertStatus(await fetch(`${base}/api/codex`, json({ action: 'start', scope: 'book' })), 202);
+	await waitFor(`${base}/api/codex`, (s) => s.job.state !== 'running', 90_000);
+	assert.ok(
+		(await chapterBlocks(t1)).every((b) => b.targetHtml),
+		'chapterIds를 안 보내면 전부 번역한다'
+	);
+
 	// 삭제: 활성 책은 거부, 비활성 책은 사라진다
 	await fetch(`${base}/api/books/${project.bookId}`, json({}));
+	await assertStatus(
+		await fetch(`${base}/api/books/${third.bookId}`, { method: 'DELETE', headers: { Origin: base } }),
+		200
+	);
 	await assertStatus(await fetch(`${base}/api/books/${project.bookId}`, { method: 'DELETE', headers: { Origin: base } }), 409);
 	await assertStatus(await fetch(`${base}/api/books/${second.bookId}`, { method: 'DELETE', headers: { Origin: base } }), 200);
 	shelf = await (await fetch(`${base}/api/books`)).json();
@@ -852,7 +911,7 @@ try {
 	);
 
 	console.log(
-		'CODEX SMOKE PASS — 실행 설정, 지침, 블록 번역, 큐, 검색·치환, 작업파일, 스냅샷, 대역본, 여러 권(목록·전환·세션·삭제), 종료 저장, 원문 분리, 드리프트 감지·해소, 원본 교체 거부, v1 마이그레이션, 작업 보호'
+		'CODEX SMOKE PASS — 실행 설정, 지침, 블록 번역, 큐, 검색·치환, 작업파일, 스냅샷, 대역본, 여러 권(목록·전환·세션·삭제), 고른 chapter만 번역, 종료 저장, 원문 분리, 드리프트 감지·해소, 원본 교체 거부, v1 마이그레이션, 작업 보호'
 	);
 	if (serverError.trim()) console.log('server stderr:', serverError.trim().slice(0, 500));
 } finally {

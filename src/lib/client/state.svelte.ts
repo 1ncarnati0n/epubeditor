@@ -4,6 +4,7 @@ import type {
 	BlockStatus,
 	BookSummary,
 	Chapter,
+	ChapterSummary,
 	CodexSettings,
 	CodexStatus,
 	CodexTranslationScope,
@@ -392,6 +393,36 @@ function rememberSession(patch: Partial<WorkSession>): void {
 	}, 600);
 }
 
+/* ---------- 번역 대상 고르기 (차례 체크박스) ---------- */
+
+/**
+ * 차례에 실제로 보이는 줄 — ChapterNav가 블록 0개짜리를 감추므로 개수를 셀 때 기준이 같아야 한다.
+ * (안 그러면 24줄 위에 "선택 28/28"이 뜬다)
+ */
+export function listedChapters(): ChapterSummary[] {
+	return (editor.project?.chapters ?? []).filter((c) => c.total > 0);
+}
+
+export function pickedChapters(): ChapterSummary[] {
+	const excluded = editor.project?.session.excluded ?? [];
+	return listedChapters().filter((c) => !excluded.includes(c.id));
+}
+
+export function isChapterPicked(id: string): boolean {
+	return !(editor.project?.session.excluded ?? []).includes(id);
+}
+
+export function toggleChapterPick(id: string): void {
+	const excluded = editor.project?.session.excluded ?? [];
+	rememberSession({
+		excluded: excluded.includes(id) ? excluded.filter((x) => x !== id) : [...excluded, id]
+	});
+}
+
+export function pickAllChapters(on: boolean): void {
+	rememberSession({ excluded: on ? [] : listedChapters().map((c) => c.id) });
+}
+
 /* ---------- 검색·치환 ---------- */
 
 export interface SearchHit {
@@ -469,12 +500,15 @@ export function connectCodex(): Promise<string | null> {
 
 export function startCodexTranslation(
 	scope: CodexTranslationScope,
-	chapterId?: string
+	chapterId?: string,
+	/** book scope에서 체크된 chapter들. 전부 체크면 넘기지 않는다 — 서버가 기존 '책 전체' 경로를 탄다 */
+	chapterIds?: string[]
 ): Promise<string | null> {
 	return codexRequest('POST', {
 		action: 'start',
 		scope,
-		chapterId: scope === 'chapter' ? (chapterId ?? editor.chapterId) : undefined
+		chapterId: scope === 'chapter' ? (chapterId ?? editor.chapterId) : undefined,
+		chapterIds: scope === 'book' ? chapterIds : undefined
 	});
 }
 

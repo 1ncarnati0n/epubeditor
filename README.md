@@ -54,7 +54,7 @@ npm run dev          # http://localhost:5173
 - **Codex** — 번역 요청 프롬프트에 함께 전달
 - **다른 MCP 클라이언트** (Claude Code 등) — `get_blocks` 응답의 `translationGuide` 필드로 전달. 번역 직전에 매번 호출되는 자리라 지침을 고치면 **이미 연결된 세션에도 즉시** 반영된다 (서버 `instructions`와 툴 설명은 클라이언트가 캐시하므로 새 세션에만 반영)
 
-책마다 따로 저장되고 작업파일에 함께 담긴다.
+책마다 따로 저장되고 작업파일에 함께 담긴다. **새 책은 기본 지침을 이미 들고 시작하므로** 책마다 넣고 저장할 필요가 없다 — 고칠 것만 고치면 된다. 지우고 되돌리고 싶으면 `예문 넣기`.
 
 ## 출력 형식
 
@@ -74,6 +74,14 @@ npm run dev          # http://localhost:5173
 | 배치 크기 | 한 번의 `codex exec`가 처리할 블록 수 (1~50) |
 
 앱은 `codex exec --ignore-user-config`로 실행한다(사용자 config의 notify 훅·trust 설정이 딸려오지 않도록). 위 설정만 `-m` / `-c`로 명시 전달된다.
+
+### 번역할 chapter 고르기
+
+좌측 `차례`의 체크박스로 **책 전체 번역이 돌 chapter를 고른다.** 표지·판권·색인처럼 번역이 필요 없는 것을 빼거나, 실패해서 건너뛴 chapter만 다시 돌릴 때 쓴다. 버튼은 언제나 "체크한 것만"을 뜻하고, 책을 열면 전부 체크된 상태라 아무것도 건드리지 않으면 결과가 예전과 같다.
+
+저장하는 건 고른 것이 아니라 **뺀 것**(`session.excluded`)이다 — 기본 `[]`가 곧 "전부 대상"이라 예전 작업파일이 마이그레이션 없이 맞고, 책을 다시 올려 chapter가 늘어도 새 것은 자동으로 대상이 된다.
+
+체크는 이 버튼에만 적용된다. `현재 chapter 번역`과 블록 버튼은 체크와 무관하다.
 
 ## 여러 권 오가기
 
@@ -146,8 +154,14 @@ OpenAI 쪽 일시 장애(`503 Service Unavailable` · `circuit_open`)는 드물�
 
 ```sh
 npm run check                          # 타입 검사
-node scripts/smoke.mjs sample.epub     # 서버 실행 상태에서: 업로드→MCP 번역→내보내기 검증
-npm run smoke:codex                    # fake Codex로 E2E: 실행 설정·지침 전달·블록 번역·큐·작업파일·스냅샷·대역본·중지
+BASE=http://127.0.0.1:5199 node scripts/smoke.mjs sample.epub   # 업로드→MCP 번역→내보내기
+npm run smoke:codex                    # fake Codex로 E2E: 실행 설정·지침 전달·블록 번역·큐·고른 chapter만 번역·작업파일·스냅샷·대역본·중지
+```
+
+`smoke.mjs`는 **읽기만 하지 않는다** — 책을 업로드해 활성 책을 바꾸고 첫 블록의 번역을 덮어쓴다. 그래서 `BASE`에 기본값이 없다. 격리된 데이터 디렉터리로 띄운 서버에만 붙일 것:
+
+```sh
+EPUBEDITOR_DATA_DIR=/tmp/eb-test PORT=5199 ORIGIN=http://127.0.0.1:5199 node build
 ```
 
 ## 구조 메모

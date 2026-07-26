@@ -63,6 +63,12 @@ export interface WorkSession {
 	chapterId: string | null;
 	cursor: string | null;
 	filter: BlockFilter;
+	/**
+	 * 책 전체 번역에서 뺀 chapter id. 고른 것이 아니라 **뺀 것**을 저장한다 —
+	 * 기본값 []이 곧 "전부 대상"이라 예전 작업파일도 마이그레이션 없이 맞고,
+	 * 책을 다시 올려 chapter가 늘어도 새 것은 자동으로 대상이 된다.
+	 */
+	excluded: string[];
 }
 
 export interface StoredProject {
@@ -95,8 +101,21 @@ export interface BookSummary {
 	active: boolean;
 }
 
+/**
+ * 새 책이 들고 시작하는 번역 지침. 예시가 아니라 **그대로 써도 되는 초안**이라
+ * 책마다 넣고 저장하는 수고를 없앤다. 지침 패널에서 언제든 고치면 그 책에만 남는다.
+ */
+export function defaultTranslationGuide(): string {
+	return `- 문체는 평어체(-다)로 통일한다.
+- 대화는 구어체로, 서술은 담백하게.
+- 원문의 쉼표·세미콜론을 그대로 옮기지 말고 한국어 호흡에 맞춰 끊는다.
+- 널리 쓰이는 한국어 용어가 있으면 그것을 쓰고, 없으면 원어를 그대로 둔다.
+- 고유명사는 처음 나올 때만 원어를 괄호로 병기한다. 예: 서츠케버(Sutskever)
+- 원문에 없는 말을 보태지 않는다. 직역이 어색하면 뜻을 살려 자연스럽게.`;
+}
+
 export function defaultSession(): WorkSession {
-	return { chapterId: null, cursor: null, filter: 'all' };
+	return { chapterId: null, cursor: null, filter: 'all', excluded: [] };
 }
 
 /** 메모리에서 쓰는 모양 — 원본에서 파싱한 블록에 번역을 얹은 것 */

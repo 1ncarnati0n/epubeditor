@@ -28,6 +28,7 @@ export const POST: RequestHandler = async ({ request, url }) => {
 		action?: 'connect' | 'start';
 		scope?: CodexTranslationScope;
 		chapterId?: string;
+		chapterIds?: unknown;
 		blockId?: string;
 	} | null;
 	try {
@@ -36,7 +37,11 @@ export const POST: RequestHandler = async ({ request, url }) => {
 		if (body?.action === 'start') {
 			const { scope } = body;
 			if (scope === 'chapter' || scope === 'book') {
-				return json(await startTranslation(mcpUrl, scope, body.chapterId), { status: 202 });
+				// 없는 id는 startTranslation의 필터에서 저절로 떨어진다 — 모양과 크기만 막는다
+				const only = Array.isArray(body.chapterIds)
+					? body.chapterIds.filter((id) => typeof id === 'string').slice(0, 2000)
+					: undefined;
+				return json(await startTranslation(mcpUrl, scope, body.chapterId, only), { status: 202 });
 			}
 			if (scope === 'block') {
 				return json(await startTranslation(mcpUrl, scope, body.blockId), { status: 202 });
