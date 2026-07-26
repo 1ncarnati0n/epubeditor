@@ -56,14 +56,25 @@ export function typographyCss(
 				)
 				.join('\n')
 		: '';
-	// 대역본: 번역문 아래에 붙는 원문 (blocks.ts의 SOURCE_CLASS와 짝)
+	/*
+	 * 대역본: 번역문 아래에 붙는 원문 (blocks.ts의 SOURCE_CLASS와 짝).
+	 *
+	 * 전부 !important다. 이건 우리가 책 본문 **안에** 끼워 넣는 상자라 책 CSS에 투표권을 주면 안 된다.
+	 * O'Reilly 책들은 Eric Meyer 리셋을 스코프해 싣는데
+	 * (`#sbo-rt-content span{margin:0;font-size:100%;font:inherit}`), 그게 (1,0,1)이라
+	 * 클래스 하나(0,1,0)로는 못 이긴다 — 원문이 번역문과 같은 크기로 렌더됐다.
+	 * 리셋이 손대는 것(크기·행간·간격)만 죽고 opacity·display는 살아서 "흐림만 되고 크기는 안 되는"
+	 * 꼴로 드러났다. !important는 명시도와 무관하게 일반 선언을 이기므로 이게 유일하게 통하는 수단이다.
+	 * ponytail: span에 !important를 건 책이면 다시 진다 — 그런 책을 만나면 그때 명시도를 올린다
+	 *   (자기 조판도 망가뜨리는 짓이라 실제로는 거의 없다).
+	 */
 	const bilingual = t.bilingual
 		? `.epubeditor-src{
-	display:block;
-	margin-top:0.3em;
-	font-size:${t.sourceScale}em;
-	opacity:${t.sourceOpacity};
-	line-height:1.45;
+	display:block !important;
+	margin-top:0.3em !important;
+	font-size:${t.sourceScale}em !important;
+	opacity:${t.sourceOpacity} !important;
+	line-height:1.45 !important;
 	text-indent:0 !important;
 }
 `

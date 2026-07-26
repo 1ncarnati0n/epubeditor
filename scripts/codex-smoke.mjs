@@ -576,7 +576,18 @@ try {
 	const css = strFromU8(
 		Object.entries(bilingual.entries).find(([name]) => name.endsWith('epubeditor.css'))[1]
 	);
-	assert.match(css, /\.epubeditor-src\{/, '병기 CSS 규칙이 EPUB에 들어가야 한다');
+	const srcRule = css.match(/\.epubeditor-src\{([^}]*)\}/)?.[1];
+	assert.ok(srcRule, '병기 CSS 규칙이 EPUB에 들어가야 한다');
+	// 책이 `#id span{margin:0;font-size:100%;font:inherit}` 리셋을 실으면 클래스 하나(0,1,0)로는
+	// 진다 (O'Reilly 책들이 그렇다 — 원문이 번역문과 같은 크기로 렌더됐다). 캐스케이드는 여기서
+	// 못 재므로 리셋이 덮는 속성마다 !important가 붙어 있는지만 지킨다 — 지운 사람을 잡는 그물이다.
+	for (const prop of ['font-size', 'line-height', 'margin-top']) {
+		assert.match(
+			srcRule,
+			new RegExp(`${prop}:[^;]*!important`),
+			`병기 원문 ${prop}은 책 CSS 리셋을 이겨야 한다`
+		);
+	}
 	assert.match(bilingual.disposition, /book-bilingual\.epub/);
 
 	await assertStatus(
