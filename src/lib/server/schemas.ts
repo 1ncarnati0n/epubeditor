@@ -12,6 +12,8 @@ export const typographySchema = z
 		textIndentEm: z.number().min(0).max(3),
 		marginPercent: z.number().min(0).max(20),
 		bilingual: z.boolean(),
+		sourceScale: z.number().min(0.5).max(1),
+		sourceOpacity: z.number().min(0.2).max(1),
 		// CSS에 그대로 들어가므로 형태를 못박는다
 		textColor: z
 			.string()

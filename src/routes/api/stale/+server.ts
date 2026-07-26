@@ -2,7 +2,7 @@ import { error, json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { getChapter, getProject, resolveStale, staleBlocks } from '$lib/server/store';
 import { broadcast } from '$lib/server/events';
-import { forEditor } from '$lib/server/sanitize';
+import { forEditorAll } from '$lib/server/sanitize';
 import { isTranslationActive } from '$lib/server/codex';
 
 export const GET: RequestHandler = async () => {
@@ -24,7 +24,7 @@ export const POST: RequestHandler = async ({ request }) => {
 	const result = await resolveStale(body.action, body.blockId);
 	for (const chapterId of result.chapterIds) {
 		const chapter = await getChapter(chapterId);
-		if (chapter) broadcast({ type: 'blocks', chapterId, blocks: chapter.blocks.map(forEditor) });
+		if (chapter) broadcast({ type: 'blocks', chapterId, blocks: forEditorAll(chapter) });
 	}
 	return json(result);
 };

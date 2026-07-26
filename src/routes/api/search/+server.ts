@@ -1,13 +1,12 @@
 import { error, json } from '@sveltejs/kit';
 import { z } from 'zod';
 import type { RequestHandler } from './$types';
-import type { Block } from '$lib/types';
+import type { Block, Chapter } from '$lib/types';
 import { getProject, persistNow, setBlock, snapshotProject } from '$lib/server/store';
-import { sanitizeInlineHtml } from '$lib/server/sanitize';
+import { editorDocDir, forEditor, sanitizeInlineHtml } from '$lib/server/sanitize';
 import { innerXml, loadXml } from '$lib/server/xml';
 import { broadcast } from '$lib/server/events';
 import { isTranslationActive } from '$lib/server/codex';
-import { forEditor } from '$lib/server/sanitize';
 
 const MAX_HITS = 200;
 
@@ -83,26 +82,31 @@ export const POST: RequestHandler = async ({ request }) => {
 	if (!parsed.success) error(400, '치환할 문자열이 올바르지 않습니다');
 	const { from, to, dryRun } = parsed.data;
 
-	const targets: { chapter: string; block: Block; html: string }[] = [];
+	const targets: { chapter: Chapter; block: Block; html: string }[] = [];
 	for (const chapter of project.chapters) {
 		for (const block of chapter.blocks) {
 			if (!block.targetHtml) continue;
 			const result = replaceInText(block.targetHtml, from, to);
-			if (result.changed) targets.push({ chapter: chapter.id, block, html: result.html });
+			if (result.changed) targets.push({ chapter, block, html: result.html });
 		}
 	}
 	if (dryRun || targets.length === 0) return json({ matched: targets.length, applied: 0 });
 
 	// 되돌릴 지점을 먼저 남긴다 — 한 번에 여러 챕터가 바뀐다
 	await snapshotProject(`"${from}" → "${to}" 치환 전`, false);
-	const byChapter = new Map<string, Block[]>();
+	const byChapter = new Map<Chapter, Block[]>();
 	for (const t of targets) {
 		setBlock(t.block, sanitizeInlineHtml(t.html), t.block.status);
 		byChapter.set(t.chapter, [...(byChapter.get(t.chapter) ?? []), t.block]);
 	}
 	await persistNow();
-	for (const [chapterId, blocks] of byChapter) {
-		broadcast({ type: 'blocks', chapterId, blocks: blocks.map(forEditor) });
+	for (const [chapter, blocks] of byChapter) {
+		const docDir = editorDocDir(chapter);
+		broadcast({
+			type: 'blocks',
+			chapterId: chapter.id,
+			blocks: blocks.map((b) => forEditor(b, docDir))
+		});
 	}
 	return json({ matched: targets.length, applied: targets.length });
 };

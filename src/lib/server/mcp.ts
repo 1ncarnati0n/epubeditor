@@ -1,8 +1,8 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import { chapterSummary, type Block } from '$lib/types';
+import { chapterSummary, type Block, type Chapter } from '$lib/types';
 import { findBlock, getChapter, getProject, setBlock } from './store';
-import { forEditor, sanitizeInlineHtml } from './sanitize';
+import { editorDocDir, forEditor, sanitizeInlineHtml } from './sanitize';
 import { broadcast } from './events';
 
 function jsonResult(data: unknown) {
@@ -61,7 +61,9 @@ export async function createMcpServer(): Promise<McpServer> {
 			title: '블록 가져오기',
 			description:
 				'Get source blocks of a chapter as XHTML fragments. Each block is one paragraph/heading/list item. ' +
-				'Translate the text content into natural literary Korean and keep every inline tag (em, strong, a, span, br, ruby, …) and its attributes exactly as-is. ' +
+				'Translate the text content into natural literary Korean and keep every inline tag and its attributes exactly as-is — ' +
+				'this includes <img> (math books set equations as inline images), <math>/MathML and <svg> subtrees, as well as em, strong, a, span, br, ruby. ' +
+				'Never drop or rewrite them; copy them verbatim into the translation at the matching position. ' +
 				`${GUIDE_RULE} ` +
 				'Note: with status="untranslated" (default) the list shrinks as you submit — re-query with offset 0 after each submit_translations.',
 			inputSchema: {
@@ -114,7 +116,8 @@ export async function createMcpServer(): Promise<McpServer> {
 		{
 			title: '번역 제출',
 			description:
-				'Submit Korean translations for blocks. targetHtml must mirror the inline markup of the block\'s sourceHtml (translate text, keep tags/attributes). ' +
+				"Submit Korean translations for blocks. targetHtml must mirror the inline markup of the block's sourceHtml (translate text, keep tags/attributes). " +
+				'<img>, <math> and <svg> must be copied verbatim — dropping them destroys equations and figures. ' +
 				`${GUIDE_RULE} ` +
 				'Submitted blocks become status "machine" and appear in the editor UI instantly. ' +
 				'Blocks the human already marked "reviewed" are skipped unless overwriteReviewed=true.',
@@ -130,7 +133,8 @@ export async function createMcpServer(): Promise<McpServer> {
 		async ({ translations, overwriteReviewed }) => {
 			if (!(await getProject())) return errorResult(NO_BOOK);
 			const results: { id: string; ok: boolean; error?: string }[] = [];
-			const changedByChapter = new Map<string, Block[]>();
+				// 표시용 재작성에 chapter의 경로가 필요하다 — id만으론 부족해서 chapter를 같이 든다
+				const changedByChapter = new Map<string, { chapter: Chapter; blocks: Block[] }>();
 			for (const { id, targetHtml } of translations) {
 				const found = await findBlock(id);
 				if (!found) {
@@ -143,12 +147,16 @@ export async function createMcpServer(): Promise<McpServer> {
 				}
 				setBlock(found.block, sanitizeInlineHtml(targetHtml), 'machine');
 				results.push({ id, ok: true });
-				const list = changedByChapter.get(found.chapter.id) ?? [];
-				list.push(found.block);
-				changedByChapter.set(found.chapter.id, list);
+				const entry = changedByChapter.get(found.chapter.id) ?? {
+					chapter: found.chapter,
+					blocks: [] as Block[]
+				};
+				entry.blocks.push(found.block);
+				changedByChapter.set(found.chapter.id, entry);
 			}
-			for (const [chapterId, blocks] of changedByChapter) {
-				broadcast({ type: 'blocks', chapterId, blocks: blocks.map(forEditor) });
+			for (const [chapterId, { chapter, blocks }] of changedByChapter) {
+				const docDir = editorDocDir(chapter);
+				broadcast({ type: 'blocks', chapterId, blocks: blocks.map((b) => forEditor(b, docDir)) });
 			}
 			const accepted = results.filter((r) => r.ok).length;
 			return jsonResult({ accepted, skipped: results.length - accepted, results });

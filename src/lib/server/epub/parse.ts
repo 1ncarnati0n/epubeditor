@@ -41,6 +41,17 @@ export function resolveHref(baseDir: string, href: string): string {
 	return path.posix.normalize(path.posix.join(baseDir, clean));
 }
 
+/**
+ * 문서 안의 상대 URL을 `/res/…`(원본 EPUB 리소스 서버)로 옮긴다.
+ * 미리보기 iframe과 편집 화면 왼쪽 칸이 같이 쓴다 — 둘 다 앱 오리진에 렌더되므로
+ * 책 안의 `../Images/x.png`는 그냥 두면 404다. 절대 URL·앵커·data:는 건드리지 않는다.
+ * **표시용 전용**이다. 저장·내보내기는 원래 상대경로여야 EPUB 안에서 맞는다.
+ */
+export function resUrl(docDir: string, value: string | undefined): string | undefined {
+	if (!value || /^(#|[a-z][a-z0-9+.-]*:)/i.test(value)) return value;
+	return '/res/' + resolveHref(docDir, value);
+}
+
 export function findOpfPath(entries: Record<string, Uint8Array>): string {
 	const $c = loadXml(readText(entries, 'META-INF/container.xml'));
 	const opfPath = $c('rootfile').first().attr('full-path');

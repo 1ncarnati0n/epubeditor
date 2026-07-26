@@ -1,14 +1,14 @@
 import { error, json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { findBlock, getChapter, setBlock } from '$lib/server/store';
-import { forEditor, sanitizeInlineHtml } from '$lib/server/sanitize';
+import { editorDocDir, forEditor, forEditorAll, sanitizeInlineHtml } from '$lib/server/sanitize';
 import { broadcast } from '$lib/server/events';
 import type { BlockStatus } from '$lib/types';
 
 export const GET: RequestHandler = async ({ params }) => {
 	const chapter = await getChapter(params.id);
 	if (!chapter) error(404, `unknown chapter: ${params.id}`);
-	return json({ ...chapter, blocks: chapter.blocks.map(forEditor) });
+	return json({ ...chapter, blocks: forEditorAll(chapter) });
 };
 
 // human edit from the UI: update a block's translation and/or status
@@ -22,6 +22,7 @@ export const PATCH: RequestHandler = async ({ params, request }) => {
 	const found = await findBlock(body.blockId);
 	if (!found || found.chapter.id !== params.id) error(404, `unknown block: ${body.blockId}`);
 	const { block } = found;
+	const docDir = editorDocDir(found.chapter);
 
 	if (typeof body.targetHtml === 'string') {
 		const clean = sanitizeInlineHtml(body.targetHtml);
@@ -34,6 +35,6 @@ export const PATCH: RequestHandler = async ({ params, request }) => {
 		error(400, 'targetHtml or status required');
 	}
 
-	broadcast({ type: 'blocks', chapterId: params.id, blocks: [forEditor(block)] });
-	return json(forEditor(block));
+	broadcast({ type: 'blocks', chapterId: params.id, blocks: [forEditor(block, docDir)] });
+	return json(forEditor(block, docDir));
 };

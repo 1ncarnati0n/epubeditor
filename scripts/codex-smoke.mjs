@@ -162,14 +162,22 @@ function epub(title = 'Codex Smoke') {
 			'<?xml version="1.0"?><container xmlns="urn:oasis:names:tc:opendocument:xmlns:container"><rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles></container>'
 		),
 		'OEBPS/content.opf': strToU8(
-			`<?xml version="1.0"?><package xmlns="http://www.idpf.org/2007/opf" version="3.0"><metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>${title}</dc:title><dc:language>en</dc:language></metadata><manifest><item id="one" href="one.xhtml" media-type="application/xhtml+xml"/><item id="two" href="two.xhtml" media-type="application/xhtml+xml"/><item id="three" href="three.xhtml" media-type="application/xhtml+xml"/></manifest><spine><itemref idref="one"/><itemref idref="two"/><itemref idref="three"/></spine></package>`
+			`<?xml version="1.0"?><package xmlns="http://www.idpf.org/2007/opf" version="3.0"><metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>${title}</dc:title><dc:language>en</dc:language></metadata><manifest><item id="one" href="one.xhtml" media-type="application/xhtml+xml"/><item id="two" href="two.xhtml" media-type="application/xhtml+xml"/><item id="three" href="three.xhtml" media-type="application/xhtml+xml"/><item id="eq" href="eq.png" media-type="image/png"/></manifest><spine><itemref idref="one"/><itemref idref="two"/><itemref idref="three"/></spine></package>`
 		),
-		// 3 blocks so batchSize=2 forces two batches
+		'OEBPS/eq.png': strToU8('not-a-real-png'),
+		// 3 blocks so batchSize=2 forces two batches.
+		// 수식 이미지·MathML·다른 문서로 가는 링크·자기 문서를 가리키는 각주를 **기존 문단 안에**
+		// 심는다 — 문단을 늘리면 블록 수가 바뀌어 다른 구간의 단언들이 깨진다.
 		'OEBPS/one.xhtml': strToU8(
-			'<html xmlns="http://www.w3.org/1999/xhtml"><body><h1>One</h1><p>Hello world.</p><p>Second sentence.</p></body></html>'
+			'<html xmlns="http://www.w3.org/1999/xhtml"><body><h1>One</h1>' +
+				'<p>Hello world <img src="eq.png" alt="eq" style="height:1.5em" onerror="boom()"/> and ' +
+				'<math xmlns="http://www.w3.org/1998/Math/MathML"><mi mathvariant="italic" onmouseover="boom()">x</mi>' +
+				'<mo>+</mo><mn>1</mn></math> <svg xmlns="http://www.w3.org/2000/svg" onload="boom()"/>.</p>' +
+				'<p id="fn1">Second sentence, see <a href="two.xhtml#t2">Two</a> and ' +
+				'<a href="one.xhtml#fn1">this very note</a>.</p></body></html>'
 		),
 		'OEBPS/two.xhtml': strToU8(
-			'<html xmlns="http://www.w3.org/1999/xhtml"><body><h1>Two</h1><p>Stop this batch.</p></body></html>'
+			'<html xmlns="http://www.w3.org/1999/xhtml"><body><h1>Two</h1><p id="t2">Stop this batch.</p></body></html>'
 		),
 		'OEBPS/three.xhtml': strToU8(
 			'<html xmlns="http://www.w3.org/1999/xhtml"><body><h1>Three</h1><p>No progress batch.</p></body></html>'
@@ -314,6 +322,16 @@ try {
 		'새 책은 기본 번역 지침을 들고 시작해야 한다'
 	);
 
+	// --- 0b. 미리보기가 본문 링크를 살리는가 (번역이 문단을 덮기 전에 봐야 한다) ---
+	{
+		const html = await (await fetch(`${base}/preview/${ch1}`)).text();
+		const leftover = html.match(/href="[^"]*\.x?html[^"]*"/)?.[0];
+		assert.ok(!leftover, `문서명 링크가 남으면 404다: ${leftover}`);
+		assert.ok(html.includes(`href="/preview/${ch2}#t2"`), '다른 문서 링크는 /preview/<id>#앵커 로');
+		assert.ok(html.includes('href="#fn1"'), '자기 문서를 가리키던 각주는 앵커만 남아야 한다');
+		await assertStatus(await fetch(`${base}/preview/${ch2}`), 200);
+	}
+
 	// --- 1. 실행 설정과 번역 지침이 실제 codex 호출에 반영되는가 ---
 	response = await fetch(
 		`${base}/api/settings`,
@@ -373,6 +391,63 @@ try {
 		others.map((block) => block.targetHtml),
 		beforeBlock.filter((_, i) => i !== 1).map((block) => block.targetHtml),
 		'다른 block은 건드리지 않는다'
+	);
+
+	// --- 2b. 수식이 번역을 통과해 살아남는가 (mock codex는 마크업을 안 보내므로 MCP로 직접) ---
+	const MATH_HTML =
+		'번역 <img src="eq.png" alt="eq" style="height:1.5em"/> 그리고 ' +
+		'<math xmlns="http://www.w3.org/1998/Math/MathML"><mi>x</mi><mo>+</mo><mn>1</mn></math>.';
+	const eqBlock = `${ch1}:b1`;
+	assert.equal(
+		(await mcpCall('submit_translations', {
+			translations: [{ id: eqBlock, targetHtml: MATH_HTML }],
+			overwriteReviewed: true
+		})).accepted,
+		1
+	);
+	const eqAfter = (await chapterBlocks(ch1))[1];
+	// 핵심: sanitize의 KEEP_SUBTREE / img 허용을 빼면 여기서 깨진다
+	assert.ok(eqAfter.targetHtml.includes('<img'), '번역 속 수식 이미지가 살아남아야 한다');
+	assert.ok(eqAfter.targetHtml.includes('<math'), '번역 속 MathML이 살아남아야 한다');
+	assert.ok(eqAfter.targetHtml.includes('<mi>x</mi>'), 'MathML 자식까지 그대로여야 한다');
+	assert.ok(eqAfter.targetHtml.includes('style="height:1.5em"'), '인라인 수식의 크기 지정이 남아야 한다');
+
+	// 표시용은 /res/ 로 옮기고, 저장용은 원래 상대경로 그대로 (섞이면 내보낸 책이 깨진다)
+	assert.ok(
+		eqAfter.sourceHtml.includes('/res/OEBPS/eq.png'),
+		'편집 화면에 뿌리는 원문의 이미지 경로는 /res/ 로 바뀌어야 한다'
+	);
+	/*
+	 * math/svg 서브트리를 통째로 통과시키므로, 그 안의 실행 속성이 새면
+	 * BlockRow의 {@html}로 앱 오리진에서 돈다 (<svg onload>는 <script> 없이도 실행된다).
+	 * 원문은 남의 EPUB에서 온 것이라 이건 진짜 실행 경로다.
+	 */
+	assert.ok(
+		!/on(error|load|mouseover)=/i.test(eqAfter.sourceHtml),
+		`math/svg 안이라도 실행 속성은 지워야 한다: ${eqAfter.sourceHtml}`
+	);
+	assert.ok(eqAfter.sourceHtml.includes('mathvariant="italic"'), 'math의 표현 속성은 남아야 한다');
+	assert.ok(eqAfter.sourceHtml.includes('<svg'), 'svg 자체는 남아야 한다');
+	await fetch(`${base}/api/save`, { method: 'POST', headers: { Origin: base } }); // debounce를 앞당긴다
+	const stored = JSON.parse(
+		await readFile(path.join(temp, 'data', project.bookId, 'project.json'), 'utf8')
+	);
+	assert.ok(
+		stored.translations[eqBlock].targetHtml.includes('src="eq.png"'),
+		'디스크에 저장된 번역은 원래 상대경로여야 한다'
+	);
+
+	{
+		const { entries: out } = await exportedFiles();
+		const doc = strFromU8(out['OEBPS/one.xhtml']);
+		assert.ok(doc.includes('<img') && doc.includes('<math'), '내보낸 EPUB에도 수식이 있어야 한다');
+		assert.ok(doc.includes('src="eq.png"'), '내보낸 EPUB의 이미지 경로는 상대경로 그대로');
+	}
+
+	// 번역문 속 이미지도 재작성되는가 (주입→재작성 순서가 뒤집히면 여기서 깨진다)
+	assert.ok(
+		(await (await fetch(`${base}/preview/${ch1}`)).text()).includes('/res/OEBPS/eq.png'),
+		'번역문 속 이미지도 /res/ 로 재작성돼야 한다'
 	);
 
 	// --- 3. 연타는 큐에 쌓여 전부 소진된다 (동시 발사 — 순차 await면 경합을 못 잡는다) ---
@@ -473,9 +548,10 @@ try {
 			.map(([, data]) => strFromU8(data))
 			.find((text) => text.includes(needle));
 
-	// 원문이 "Hello world."인 블록으로 확인한다 (번역문과 원문이 눈에 띄게 다름)
+	// 원문이 "Second sentence"인 블록으로 확인한다 (번역문과 원문이 눈에 띄게 다르고 마크업이 단순)
+	const PROBE_SRC = 'Second sentence';
 	const probeBlock = (await chapterBlocks(ch1)).find((block) =>
-		block.sourceHtml.includes('Hello world.')
+		block.sourceHtml.includes(PROBE_SRC)
 	);
 	assert.ok(probeBlock?.targetHtml, '검사용 블록이 번역돼 있어야 한다');
 
@@ -483,7 +559,7 @@ try {
 	const soloDoc = findDoc(translatedOnly.entries, probeBlock.targetHtml);
 	assert.ok(soloDoc, '번역본에 번역문이 있어야 한다');
 	assert.ok(!soloDoc.includes('epubeditor-src'), '번역만 모드에는 병기 span이 없다');
-	assert.ok(!soloDoc.includes('Hello world.'), '번역만 모드에는 원문 영어가 없다');
+	assert.ok(!soloDoc.includes(PROBE_SRC), '번역만 모드에는 원문 영어가 없다');
 	assert.match(translatedOnly.disposition, /book-ko\.epub/);
 
 	await assertStatus(
@@ -493,9 +569,8 @@ try {
 	const bilingual = await exportedFiles();
 	const bothDoc = findDoc(bilingual.entries, probeBlock.targetHtml);
 	assert.ok(
-		bothDoc.includes(
-			`${probeBlock.targetHtml}<span class="epubeditor-src">Hello world.</span>`
-		),
+		bothDoc.includes(`${probeBlock.targetHtml}<span class="epubeditor-src">`) &&
+			bothDoc.includes(PROBE_SRC),
 		'원문은 번역문 바로 뒤, 같은 블록 안의 span이어야 한다'
 	);
 	const css = strFromU8(
@@ -853,9 +928,9 @@ try {
 				title: 'One',
 				blocks: [
 					{
-						id: `${ch1}:b1`,
-						tag: 'p',
-						sourceHtml: 'Hello world.', // 실제 원문과 같음 → stale 아님
+						id: `${ch1}:b0`,
+						tag: 'h1',
+						sourceHtml: 'One', // 실제 원문과 같음 → stale 아님
 						targetHtml: 'v1에서 넘어온 번역',
 						status: 'reviewed',
 						updatedAt: 123
@@ -877,7 +952,7 @@ try {
 	const migrated = await waitFor(`${base}/api/project`, (p) => !!p.chapters);
 	assert.equal(migrated.translationGuide, '옛 지침', 'v1 지침이 옮겨온다');
 	const migratedBlocks = await chapterBlocks(ch1);
-	const kept = migratedBlocks.find((b) => b.id === `${ch1}:b1`);
+	const kept = migratedBlocks.find((b) => b.id === `${ch1}:b0`);
 	const drifted = migratedBlocks.find((b) => b.id === `${ch1}:b2`);
 	assert.equal(kept.targetHtml, 'v1에서 넘어온 번역', '원문이 그대로면 번역이 살아난다');
 	assert.equal(kept.stale, false);

@@ -33,6 +33,10 @@ export interface Typography {
 	marginPercent: number;
 	/** 대역본: 번역문 아래에 원문을 작게 병기 (미리보기·내보내기 공통) */
 	bilingual: boolean;
+	/** 병기 원문의 글자 크기 배율 (번역문 대비). 병기를 껐으면 쓰이지 않는다 */
+	sourceScale: number;
+	/** 병기 원문의 흐림 정도 (opacity) */
+	sourceOpacity: number;
 	/** 본문 글자색 (#rrggbb). null = 책 원본 그대로 */
 	textColor: string | null;
 }
@@ -145,6 +149,8 @@ export function defaultTypography(): Typography {
 		textIndentEm: 0,
 		marginPercent: 5,
 		bilingual: false,
+		sourceScale: 0.85,
+		sourceOpacity: 0.6,
 		textColor: null
 	};
 }

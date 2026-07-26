@@ -34,6 +34,33 @@
 			<small>{t.bilingual ? '번역문 아래에 원문을 작게 병기합니다' : '원문을 번역문으로 대체합니다'}</small>
 		</div>
 
+		{#if t.bilingual}
+			<label class="field sub">
+				<span>원문 크기 <em>{t.sourceScale.toFixed(2)}배</em></span>
+				<input
+					type="range"
+					min="0.5"
+					max="1"
+					step="0.05"
+					value={t.sourceScale}
+					oninput={(e) => saveTypography({ sourceScale: num(e) })}
+				/>
+			</label>
+
+			<label class="field sub">
+				<span>원문 흐림 <em>{t.sourceOpacity.toFixed(2)}</em></span>
+				<input
+					type="range"
+					min="0.2"
+					max="1"
+					step="0.05"
+					value={t.sourceOpacity}
+					oninput={(e) => saveTypography({ sourceOpacity: num(e) })}
+				/>
+				<small>번역문 대비 원문의 크기와 진하기. 작게 할수록 흐리면 안 보이니 같이 조절하세요</small>
+			</label>
+		{/if}
+
 		<div class="field">
 			<span>편집 화면 밀도</span>
 			<Segmented
@@ -175,6 +202,13 @@
 	.field {
 		display: block;
 		margin-bottom: 1.1rem;
+	}
+	/* 위 항목에 딸린 설정 — 들여써서 소속을 보인다 */
+	.field.sub {
+		margin-left: 0.7rem;
+		border-left: 1px solid var(--line);
+		padding-left: 0.6rem;
+		margin-bottom: 0.8rem;
 	}
 	.field span {
 		display: flex;
