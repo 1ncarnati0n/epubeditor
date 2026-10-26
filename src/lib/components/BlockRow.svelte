@@ -8,6 +8,8 @@
 
 	let el: HTMLDivElement | undefined = $state();
 	let focused = false;
+	/** 사람이 고친 뒤에만 저장한다. 들어갔다 나온 것까지 저장하면 직렬화 차이 때문에 검수 상태가 바뀐다 */
+	let edited = false;
 	/** 요청을 보낸 뒤 job 상태가 돌아오기 전까지 — Codex 준비 확인에 1~2초 걸린다 */
 	let pending = $state(false);
 	let failure = $state<string | null>(null);
@@ -56,6 +58,8 @@
 
 	function commit() {
 		focused = false;
+		if (!edited) return;
+		edited = false;
 		const html = el?.innerHTML ?? '';
 		if (html !== (block.targetHtml ?? '')) void saveBlock(block.id, { targetHtml: html });
 	}
@@ -130,7 +134,10 @@
 		tabindex="0"
 		onfocus={() => (focused = true)}
 		onblur={commit}
-		oninput={() => (editor.save.dirty = true)}
+		oninput={() => {
+			edited = true;
+			editor.save.dirty = true;
+		}}
 		{onpaste}
 	></div>
 </div>

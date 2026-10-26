@@ -1,7 +1,13 @@
 import { error, json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { findBlock, getChapter, setBlock } from '$lib/server/store';
-import { editorDocDir, forEditor, forEditorAll, sanitizeInlineHtml } from '$lib/server/sanitize';
+import {
+	editorDocDir,
+	forEditor,
+	forEditorAll,
+	relativizeInlineHtml,
+	sanitizeInlineHtml
+} from '$lib/server/sanitize';
 import { broadcast } from '$lib/server/events';
 import type { BlockStatus } from '$lib/types';
 
@@ -25,7 +31,7 @@ export const PATCH: RequestHandler = async ({ params, request }) => {
 	const docDir = editorDocDir(found.chapter);
 
 	if (typeof body.targetHtml === 'string') {
-		const clean = sanitizeInlineHtml(body.targetHtml);
+		const clean = sanitizeInlineHtml(relativizeInlineHtml(body.targetHtml, docDir));
 		const isEmpty = clean.replace(/<[^>]*>/g, '').trim().length === 0;
 		if (isEmpty) setBlock(block, null, 'untranslated');
 		else setBlock(block, clean, body.status ?? 'reviewed');
