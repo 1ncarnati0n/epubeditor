@@ -11,6 +11,25 @@
 		{ value: '#55524a', label: '부드럽게' }
 	];
 
+	/** 현재 챕터의 책 원본 본문 크기(px) — 숨은 iframe에서 잰다. 못 재면 null */
+	let basePx = $state<number | null>(null);
+	const bodyPx = $derived(t?.fontSizePx ?? basePx);
+
+	// 가장 많은 p의 계산된 크기 = 본문 크기. p가 없는 챕터(표지 등)는 body로.
+	function measure(e: Event) {
+		const doc = (e.currentTarget as HTMLIFrameElement).contentDocument;
+		const win = doc?.defaultView;
+		if (!doc || !win) return;
+		const counts = new Map<number, number>();
+		for (const el of Array.from(doc.querySelectorAll('p')).slice(0, 300)) {
+			if (!el.textContent?.trim()) continue;
+			const px = Math.round(parseFloat(win.getComputedStyle(el).fontSize) * 10) / 10;
+			counts.set(px, (counts.get(px) ?? 0) + 1);
+		}
+		const top = [...counts].sort((a, b) => b[1] - a[1])[0];
+		basePx = top ? top[0] : doc.body ? parseFloat(win.getComputedStyle(doc.body).fontSize) : null;
+	}
+
 	function num(e: Event): number {
 		return Number((e.currentTarget as HTMLInputElement).value);
 	}
@@ -36,14 +55,21 @@
 
 		{#if t.bilingual}
 			<label class="field sub">
-				<span>원문 크기 <em>{t.sourceScale.toFixed(2)}배</em></span>
+				<span
+					>원문 크기 <em
+						>본문의 {Math.round(t.sourceScale * 100)}%{bodyPx
+							? ` · ${Math.round(bodyPx * t.sourceScale * 10) / 10}px`
+							: ''}</em
+					></span
+				>
 				<input
 					type="range"
-					min="0.5"
-					max="1"
-					step="0.05"
-					value={t.sourceScale}
-					oninput={(e) => saveTypography({ sourceScale: num(e) })}
+					aria-label="원문 크기 (본문 대비 %)"
+					min="40"
+					max="100"
+					step="5"
+					value={Math.round(t.sourceScale * 100)}
+					oninput={(e) => saveTypography({ sourceScale: num(e) / 100 })}
 				/>
 			</label>
 
@@ -57,7 +83,7 @@
 					value={t.sourceOpacity}
 					oninput={(e) => saveTypography({ sourceOpacity: num(e) })}
 				/>
-				<small>번역문 대비 원문의 크기와 진하기. 작게 할수록 흐리면 안 보이니 같이 조절하세요</small>
+				<small>원문 크기는 본문(번역문) 글자 크기 대비 비율입니다. 작게 할수록 흐리면 안 보이니 같이 조절하세요</small>
 			</label>
 		{/if}
 
@@ -121,17 +147,40 @@
 			</small>
 		</div>
 
-		<label class="field">
-			<span>글자 크기 <em>{t.fontSizePercent}%</em></span>
+		<div class="field">
+			<span
+				>글자 크기 <em
+					>{#if t.fontSizePx == null}책 원본{basePx ? ` ${basePx}px` : ''}{:else}{t.fontSizePx}px
+						<button class="reset" onclick={() => saveTypography({ fontSizePx: null })}>원본</button
+						>{/if}</em
+				></span
+			>
 			<input
 				type="range"
-				min="70"
-				max="150"
-				step="5"
-				value={t.fontSizePercent}
-				oninput={(e) => saveTypography({ fontSizePercent: num(e) })}
+				aria-label="글자 크기 (px)"
+				min="10"
+				max="28"
+				step="0.5"
+				value={t.fontSizePx ?? basePx ?? 16}
+				oninput={(e) => saveTypography({ fontSizePx: num(e) })}
 			/>
-		</label>
+			<small>
+				{#if basePx}이 챕터의 책 원본 본문 크기는 {basePx}px입니다{:else}원본 크기를 재는 중…{/if}
+			</small>
+			{#if editor.chapterId}
+				<!-- 원본 크기 측정용: 크기 덮어쓰기를 뺀 미리보기. 챕터가 바뀔 때만 다시 잰다 -->
+				{#key editor.chapterId}
+					<iframe
+						class="probe"
+						title="원본 크기 측정"
+						aria-hidden="true"
+						tabindex="-1"
+						src="/preview/{editor.chapterId}?base"
+						onload={measure}
+					></iframe>
+				{/key}
+			{/if}
+		</div>
 
 		<label class="field">
 			<span>행간 <em>{t.lineHeight.toFixed(2)}</em></span>
@@ -262,6 +311,22 @@
 		color: var(--muted);
 		font-size: 0.68rem;
 		line-height: 1.5;
+	}
+	/* display:none이면 일부 브라우저가 스타일을 계산하지 않는다 — 화면 밖으로만 뺀다 */
+	.probe {
+		position: absolute;
+		left: -10000px;
+		width: 600px;
+		height: 10px;
+		border: 0;
+		visibility: hidden;
+	}
+	.reset {
+		margin-left: 0.3rem;
+		padding: 0 0.3rem;
+		border: 1px solid var(--line);
+		font-size: 0.65rem;
+		color: var(--muted);
 	}
 	.note {
 		font-size: 0.72rem;

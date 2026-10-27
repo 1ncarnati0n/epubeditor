@@ -153,7 +153,7 @@ export async function resolveStale(
 	return { resolved, chapterIds: [...chapterIds] };
 }
 
-const DATA_DIR = path.resolve(process.env.EPUBEDITOR_DATA_DIR || 'data');
+export const DATA_DIR = path.resolve(process.env.EPUBEDITOR_DATA_DIR || 'data');
 
 // ponytail: single active project held in module state — multi-project UI is a v2 concern
 let project: Project | null = null;

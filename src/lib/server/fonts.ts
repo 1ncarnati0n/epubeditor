@@ -148,9 +148,20 @@ table{ display:block; overflow-x:auto; max-width:100%; }
 img, svg{ max-width:100%; }
 `
 		: '';
+	/*
+	 * 절대 크기: 루트를 px로 박고 body를 1rem으로 되돌린다. 책이 `html{font-size:62.5%}` +
+	 * `body{font-size:1.6rem}` 같은 짓을 해도 본문은 정확히 이 크기가 되고,
+	 * 제목·각주처럼 em/rem으로 정한 것들은 비율을 유지한다.
+	 * ponytail: p 등에 px를 직접 박은 책은 그 요소만 안 따라온다 — 만나면 그때 p에도 건다.
+	 */
+	const size =
+		t.fontSizePx != null
+			? `html{font-size:${t.fontSizePx}px !important;}
+body{ font-size:1rem !important; }
+`
+			: '';
 	return `${faces}
-${family}${color}${mathRevert}${previewDark}${previewFit}html{font-size:${t.fontSizePercent}%;}
-body{
+${family}${color}${mathRevert}${previewDark}${previewFit}${size}body{
 	line-height:${t.lineHeight} !important;
 	padding-left:${t.marginPercent}% !important;
 	padding-right:${t.marginPercent}% !important;

@@ -28,10 +28,33 @@
 		const when = done.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
 		return mins < 2 ? '곧 끝남' : `${when} 완료 예정 (${mins < 90 ? `${mins}분` : `${(mins / 60).toFixed(1)}시간`})`;
 	});
+	const pdf = $derived(editor.pdfJob);
+	const pdfPct = $derived(pdf?.total ? Math.min(100, (pdf.done / pdf.total) * 100) : 0);
 	const chapterName = $derived(
 		editor.project?.chapters.find((c) => c.id === job?.chapterId)?.title ?? job?.chapterId ?? ''
 	);
 </script>
+
+{#if pdf && (pdf.state === 'running' || pdf.message)}
+	<div class="jobbar" role="status" aria-live="polite">
+		{#if pdf.state === 'running'}
+			<div class="track" aria-hidden="true"><i style:width="{pdfPct}%"></i></div>
+		{/if}
+		<div class="line">
+			{#if pdf.state === 'running'}
+				<span class="dot" aria-hidden="true"></span>
+				<strong>{pdf.phase === 'read' ? 'PDF 읽는 중' : '수식 인식 중'}</strong>
+				<span class="what">{pdf.fileName}</span>
+				<span class="num">{pdf.done}/{pdf.total}{pdf.phase === 'read' ? '쪽' : '쪽 (Codex)'}</span>
+				{#if pdf.mathPages}<span class="q">수식 페이지 {pdf.mathPages}</span>{/if}
+			{:else}
+				<strong class="retry">{pdf.state === 'failed' ? '변환 실패' : '변환 완료'}</strong>
+				<span class="what" title={pdf.message}>{pdf.message}</span>
+				<button onclick={() => (editor.pdfJob = null)}>닫기</button>
+			{/if}
+		</div>
+	</div>
+{/if}
 
 {#if running}
 	<div class="jobbar" role="status" aria-live="polite">

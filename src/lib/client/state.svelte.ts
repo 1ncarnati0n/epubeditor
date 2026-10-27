@@ -8,6 +8,7 @@ import type {
 	CodexSettings,
 	CodexStatus,
 	CodexTranslationScope,
+	PdfJobStatus,
 	ProjectSummary,
 	Snapshot,
 	Typography,
@@ -55,7 +56,9 @@ export const editor = $state({
 	/** 미리보기 iframe 강제 리로드 카운터 (조판 변경·번역 도착 시 증가) */
 	previewRev: 0,
 	/** 리로드 뒤 복원할 미리보기 스크롤 위치 */
-	previewScroll: 0
+	previewScroll: 0,
+	/** PDF → EPUB 변환 작업 (끝나면 그 책이 열린다) */
+	pdfJob: null as PdfJobStatus | null
 });
 
 /** 화면 밀도는 책 데이터가 아니라 이 브라우저의 취향이므로 localStorage에 둔다 */
@@ -184,12 +187,21 @@ export async function uploadEpub(file: File): Promise<string | null> {
 		const body = await res.json().catch(() => null);
 		return body?.message ?? '업로드에 실패했습니다';
 	}
+	// PDF는 백그라운드 변환 — 진행과 완료는 SSE 'pdf' 이벤트로 온다
+	if (res.status === 202) {
+		editor.pdfJob = await res.json();
+		return null;
+	}
 	editor.project = await res.json();
+	await openFirstChapter();
+	return null;
+}
+
+async function openFirstChapter(): Promise<void> {
 	editor.chapter = null;
 	editor.chapterId = null;
 	const first = editor.project?.chapters.find((c) => c.total > 0);
 	if (first) await openChapter(first.id);
-	return null;
 }
 
 export async function saveBlock(
@@ -578,6 +590,10 @@ function connect(): void {
 			if (event.status.state === 'running' && was !== 'running') editor.arrived = 0;
 			if (editor.codex) editor.codex.job = event.status;
 			else void refreshCodex();
+		} else if (event.type === 'pdf') {
+			const was = editor.pdfJob?.state;
+			editor.pdfJob = event.status;
+			if (event.status.state === 'done' && was !== 'done') void refreshProject().then(openFirstChapter);
 		} else if (event.type === 'saved') {
 			editor.save = { dirty: false, savedAt: event.at };
 		}

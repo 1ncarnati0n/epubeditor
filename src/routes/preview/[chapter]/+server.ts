@@ -9,7 +9,7 @@ import { docXml, loadXml } from '$lib/server/xml';
 import { typographyCss } from '$lib/server/fonts';
 
 // 번역 주입 + 리소스 경로 재작성 + 조판 CSS 주입한 챕터 XHTML (iframe 미리보기용)
-export const GET: RequestHandler = async ({ params }) => {
+export const GET: RequestHandler = async ({ params, url }) => {
 	const project = await getProject();
 	const chapter = await getChapter(params.chapter);
 	const entries = await getEntries();
@@ -54,7 +54,9 @@ export const GET: RequestHandler = async ({ params }) => {
 		el.attribs['href'] = id === chapter.id ? frag || '#' : `/preview/${id}${frag}`;
 	});
 
-	const css = typographyCss(project.typography, (file) => `/fonts/${file}`, 'opentype', true);
+	// ?base: 글자 크기 덮어쓰기 없이 — 조판 패널이 책 원본 본문 크기를 재는 용도
+	const t = url.searchParams.has('base') ? { ...project.typography, fontSizePx: null } : project.typography;
+	const css = typographyCss(t, (file) => `/fonts/${file}`, 'opentype', true);
 	const head = $('head');
 	if (head.length) head.append(`<style>${css}</style>`);
 	else $.root().append(`<style>${css}</style>`);

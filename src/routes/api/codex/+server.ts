@@ -9,6 +9,7 @@ import {
 	startTranslation,
 	stopTranslation
 } from '$lib/server/codex';
+import { isPdfJobActive } from '$lib/server/pdf';
 
 function fail(reason: unknown): never {
 	if (reason instanceof CodexRunnerError) error(reason.status, reason.message);
@@ -31,6 +32,9 @@ export const POST: RequestHandler = async ({ request, url }) => {
 		chapterIds?: unknown;
 		blockId?: string;
 	} | null;
+	// 변환이 끝나면 책이 바뀐다 — 그 사이에 옛 책을 번역하면 결과가 엉뚱한 책으로 간다.
+	// try 밖이어야 한다: 안에서 던지면 fail()이 500으로 바꾼다
+	if (body?.action === 'start' && isPdfJobActive()) error(409, 'PDF 변환이 끝난 뒤에 번역하세요');
 	try {
 		const mcpUrl = expectedMcpUrl(url);
 		if (body?.action === 'connect') return json(await connectCodex(mcpUrl));

@@ -101,10 +101,10 @@
 	{/if}
 
 	<label class="open" class:busy>
-		<span>{busy ? '여는 중…' : editor.books.length ? '다른 EPUB 열기' : 'EPUB을 끌어다 놓거나 눌러서 열기'}</span>
+		<span>{busy ? '여는 중…' : editor.books.length ? '다른 EPUB·PDF 열기' : 'EPUB·PDF를 끌어다 놓거나 눌러서 열기'}</span>
 		<input
 			type="file"
-			accept=".epub,application/epub+zip"
+			accept=".epub,application/epub+zip,.pdf,application/pdf"
 			hidden
 			disabled={busy}
 			onchange={(e) => handleFile(e.currentTarget.files)}

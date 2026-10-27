@@ -26,7 +26,8 @@ export type FontId = "pretendard" | "noto-serif-kr";
 
 export interface Typography {
   bodyFont: FontId | null; // null = keep the book's original styles
-  fontSizePercent: number;
+  /** 본문 글자 크기 (px, 절대값). null = 책 원본 크기 */
+  fontSizePx: number | null;
   lineHeight: number;
   paraSpacingEm: number;
   textIndentEm: number;
@@ -143,7 +144,7 @@ export interface Project {
 export function defaultTypography(): Typography {
   return {
     bodyFont: null,
-    fontSizePercent: 100,
+    fontSizePx: null,
     lineHeight: 1.7,
     paraSpacingEm: 0.5,
     textIndentEm: 0,
@@ -227,6 +228,19 @@ export type CodexJobState =
   | "completed"
   | "failed"
   | "cancelled";
+
+/** PDF → EPUB 변환 작업 (수식 페이지를 Codex로 받아 적느라 길어질 수 있다) */
+export interface PdfJobStatus {
+  state: "running" | "done" | "failed";
+  fileName: string;
+  phase: "read" | "math";
+  done: number;
+  total: number;
+  mathPages: number;
+  /** Codex가 끝내 실패해 휴리스틱으로 떨어진 쪽 */
+  failedPages: number[];
+  message: string | null;
+}
 
 export interface CodexJobStatus {
   state: CodexJobState;

@@ -68,7 +68,7 @@ function publish(): void {
 	broadcast({ type: 'codex', status: snapshot() });
 }
 
-function codexBin(): string {
+export function codexBin(): string {
 	return process.env.CODEX_BIN || 'codex';
 }
 
@@ -339,12 +339,12 @@ const MAX_EMPTY_ATTEMPTS = 2;
 
 class NoProgressError extends Error {}
 
-function isTransient(error: unknown): boolean {
+export function isTransient(error: unknown): boolean {
 	return error instanceof NoProgressError || TRANSIENT.test(String((error as Error)?.message ?? ''));
 }
 
 /** stderr 4,000자 대신 사람이 읽을 한 줄 — 원문은 서버 콘솔에 남긴다 */
-function summarize(error: unknown): string {
+export function summarize(error: unknown): string {
 	const raw = String((error as Error)?.message ?? error ?? '').trim();
 	if (!raw) return '알 수 없는 오류';
 	if (/circuit_open|service unavailable|\b503\b/i.test(raw)) {

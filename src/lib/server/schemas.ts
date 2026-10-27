@@ -6,13 +6,13 @@ import { z } from 'zod';
 export const typographySchema = z
 	.object({
 		bodyFont: z.enum(['pretendard', 'noto-serif-kr']).nullable(),
-		fontSizePercent: z.number().min(50).max(200),
+		fontSizePx: z.number().min(8).max(40).nullable(),
 		lineHeight: z.number().min(1).max(3),
 		paraSpacingEm: z.number().min(0).max(3),
 		textIndentEm: z.number().min(0).max(3),
 		marginPercent: z.number().min(0).max(20),
 		bilingual: z.boolean(),
-		sourceScale: z.number().min(0.5).max(1),
+		sourceScale: z.number().min(0.4).max(1),
 		sourceOpacity: z.number().min(0.2).max(1),
 		// CSS에 그대로 들어가므로 형태를 못박는다
 		textColor: z
